@@ -63,6 +63,9 @@ TWSE 全量驗證採單線節流與逐月快取；後續可續傳。模型預測
 | `data/processed/oracle_feature_profile.csv` | 事後最佳日的前一日特徵在當月內的偏移統計 |
 | `data/processed/walk_forward_predictions.csv` | 完全樣本外的每日模型預測值 (機率與保留價) |
 | `data/processed/walk_forward_purchases.csv` | 三組模型每月唯一樣本外買點決策 |
+| `data/processed/walk_forward_technical_calendar.csv` | 「技術＋日曆」模型每月樣本外決策買點與 regret |
+| `data/processed/walk_forward_technical_valuation_calendar.csv` | 「技術＋估值＋日曆」模型每月樣本外決策買點與 regret |
+| `data/processed/walk_forward_all.csv` | 「全特徵」模型每月樣本外決策買點與 regret |
 | `reports/research_results.json` | 完整統計、信賴區間與隨機策略模擬結果 |
 | `reports/0050_buy_point_analysis.md` | 繁體中文研究報告與圖表 |
 
