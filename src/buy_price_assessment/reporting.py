@@ -114,6 +114,163 @@ def _oracle_feature_table(ranges: Mapping[str, Mapping[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+LEAD_LABELS: dict[str, str] = {
+    "tsm_neg_or_day5": "TSM ADR 下跌／第5日截止",
+    "sox_neg_or_day5": "SOX 下跌／第5日截止",
+    "fx_pause_or_day5": "臺幣連貶暫緩／第5日截止",
+    "tsm_dump1pct_or_day5": "TSM 隔夜大跌≥1%／第5日截止",
+    "tsm_buy_unless_adverse": "第1日買入、TSM 隔夜下跌才暫緩／第5日截止",
+    "fx_single_pause_or_day5": "臺幣單日貶值暫緩／第5日截止",
+}
+POLICY_LABELS: dict[str, str] = {
+    "prob_and_res": "機率＋保留價／月底",
+    "prob_only": "僅機率／月底",
+    "res_only": "僅保留價／月底",
+    "prob_and_res_deadline5": "機率＋保留價／第5日截止",
+    "prob_only_deadline5": "僅機率／第5日截止",
+    "res_only_deadline5": "僅保留價／第5日截止",
+}
+
+
+def _policy_ablation_table(
+    ablation: Mapping[str, Mapping[str, Any]],
+    labels: Mapping[str, str] | None = None,
+) -> str:
+    if not ablation:
+        return ""
+    name_labels = labels or POLICY_LABELS
+    lines = [
+        "| 決策規則 | 平均 regret | 強制率 | 平均買入日 | vs 第1日 | 95% CI |"
+        " holdout regret | holdout vs 第1日 | holdout 95% CI |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+    ]
+    for name in name_labels:
+        item = ablation.get(name, {})
+        if not item:
+            continue
+        ci = item.get("ci95_bps", [0.0, 0.0])
+        holdout_ci = item.get("holdout_ci95_bps", [0.0, 0.0])
+        lines.append(
+            "| {label} | {regret} | {forced} | {day:.1f} | {vs} | [{lo}, {hi}]"
+            " | {h_regret} | {h_vs} | [{h_lo}, {h_hi}] |".format(
+                label=name_labels[name],
+                regret=_percent(float(item.get("mean_regret", 0.0))),
+                forced=_percent(float(item.get("forced_rate", 0.0)), 1),
+                day=float(item.get("mean_trading_day", 0.0)),
+                vs=_bps(float(item.get("improvement_bps", 0.0))),
+                lo=_bps(float(ci[0])),
+                hi=_bps(float(ci[1])),
+                h_regret=_percent(float(item.get("holdout_mean_regret", 0.0))),
+                h_vs=_bps(float(item.get("holdout_improvement_bps", 0.0))),
+                h_lo=_bps(float(holdout_ci[0])),
+                h_hi=_bps(float(holdout_ci[1])),
+            )
+        )
+    return "\n".join(lines)
+
+
+def _policies_beating_day1(
+    ablation: Mapping[str, Mapping[str, Any]],
+    labels: Mapping[str, str] | None = None,
+) -> list[str]:
+    name_labels = labels or POLICY_LABELS
+    winners: list[str] = []
+    for name, item in ablation.items():
+        ci = item.get("ci95_bps", [0.0, 0.0])
+        if float(ci[0]) > 0.0 and float(ci[1]) > 0.0:
+            winners.append(name_labels.get(name, name))
+    return winners
+
+
+def _change_phrase(before: float, after: float, formatted_after: str) -> str:
+    if after < before:
+        return f"降到 {formatted_after}"
+    if after > before:
+        return f"升到 {formatted_after}"
+    return f"仍為 {formatted_after}"
+
+
+def _ablation_mechanism(ablation: Mapping[str, Mapping[str, Any]]) -> str:
+    dual = ablation.get("prob_and_res", {})
+    prob_only = ablation.get("prob_only", {})
+    dual_deadline = ablation.get("prob_and_res_deadline5", {})
+    if not (dual and prob_only and dual_deadline):
+        return ""
+    dual_regret = float(dual.get("mean_regret", 0.0))
+    dual_forced = float(dual.get("forced_rate", 0.0))
+    prob_regret = float(prob_only.get("mean_regret", 0.0))
+    prob_forced = float(prob_only.get("forced_rate", 0.0))
+    deadline_regret = float(dual_deadline.get("mean_regret", 0.0))
+    parts = [
+        "拿掉保留價後，強制率從 "
+        f"{_percent(dual_forced, 1)} {_change_phrase(dual_forced, prob_forced, _percent(prob_forced, 1))}，"
+        f"平均 regret 從 {_percent(dual_regret)} "
+        f"{_change_phrase(dual_regret, prob_regret, _percent(prob_regret))}。"
+    ]
+    if deadline_regret < dual_regret:
+        parts.append(
+            "第 5 日截止把雙門檻平均 regret 從 "
+            f"{_percent(dual_regret)} 拉到 {_percent(deadline_regret)}。"
+            "第 5 日截止列的高強制率表示多數月份在前 5 日沒有訊號、於第 5 日買入，"
+            "接近固定第 5 日，而不是繼續等待。"
+        )
+    holdout_deltas = [float(item.get("holdout_improvement_bps", 0.0)) for item in ablation.values()]
+    if holdout_deltas and all(delta < 0.0 for delta in holdout_deltas):
+        parts.append(f"holdout 上 {len(ablation)} 組相對第 1 日的點估計仍全為負。")
+    return " ".join(parts)
+
+
+def _lead_rule_role(item: Mapping[str, Any]) -> str:
+    forced = float(item.get("forced_rate", 0.0))
+    mean_day = float(item.get("mean_trading_day", 0.0))
+    if forced < 0.05 and mean_day < 1.35:
+        return "almost_day1"
+    if forced < 0.05:
+        return "delayed_day1"
+    return "filter"
+
+
+def _lead_mechanism(
+    lead_rules: Mapping[str, Mapping[str, Any]],
+    lead_coverage: Mapping[str, Any],
+) -> str:
+    diagnoses: list[str] = []
+    for name in LEAD_LABELS:
+        item = lead_rules.get(name, {})
+        if not item:
+            continue
+        label = LEAD_LABELS[name]
+        forced = _percent(float(item.get("forced_rate", 0.0)), 1)
+        mean_day = float(item.get("mean_trading_day", 0.0))
+        role = _lead_rule_role(item)
+        if role == "almost_day1":
+            diagnoses.append(
+                f"{label}：強制率 {forced}、平均第 {mean_day:.1f} 日，幾乎就是第 1 日。"
+            )
+        elif role == "delayed_day1":
+            diagnoses.append(
+                f"{label}：強制率 {forced}、平均第 {mean_day:.1f} 日，屬延後買入而非過濾。"
+            )
+        else:
+            diagnoses.append(
+                f"{label}：強制率 {forced}、平均第 {mean_day:.1f} 日，窗口內未觸發才截止買入，屬過濾。"
+            )
+    coverage_bits = []
+    rate_labels = (
+        ("tsm_dump_rate", "TSM 任意下跌"),
+        ("tsm_dump_1pct_rate", "TSM ≥1% 大跌"),
+        ("tsm_adverse_rate", "TSM 隔夜下跌（暫緩條件）"),
+        ("sox_dump_rate", "SOX 任意下跌"),
+        ("fx_pause_rate", "三日臺幣連貶"),
+        ("fx_single_pause_rate", "單日臺幣貶值"),
+    )
+    for key, label in rate_labels:
+        if key in lead_coverage:
+            coverage_bits.append(f"{label} {_percent(float(lead_coverage[key]), 1)}")
+    prefix = "訊號日頻率：" + "、".join(coverage_bits) + "。" if coverage_bits else ""
+    return prefix + " ".join(diagnoses)
+
+
 def _model_diagnostics_table(metrics: Mapping[str, Mapping[str, Any]]) -> str:
     labels = {
         "technical_calendar": "技術＋日曆",
@@ -158,6 +315,9 @@ def render_report(results: Mapping[str, Any]) -> str:
     day_comparison = results.get("day1_vs_day5", {}) or {}
     metrics = results.get("strategy_metrics", {}) or {}
     random = results.get("random_strategy", {}) or {}
+    ablation = results.get("policy_ablation", {}) or {}
+    lead_rules = results.get("lead_rules", {}) or {}
+    lead_coverage = results.get("lead_coverage", {}) or {}
 
     model_ci = primary.get("model_ci95_bps", [0.0, 0.0])
     day_ci = day_comparison.get("ci95_bps", [0.0, 0.0])
@@ -196,6 +356,78 @@ def render_report(results: Mapping[str, Any]) -> str:
     quality_start = str(quality.get("start", "2003-06-30"))
     quality_end = str(quality.get("end", "2026-07-09"))
 
+    if ablation:
+        policy_count = len(ablation)
+        winners = _policies_beating_day1(ablation)
+        if winners:
+            winner_text = "、".join(winners)
+            ablation_verdict = (
+                f"預先指定的 {policy_count} 組政策中，{winner_text} 的樣本外 95% CI 全數 > 0，"
+                "即相對第 1 日有統計上可分辨的改善。"
+            )
+        else:
+            ablation_verdict = (
+                f"{policy_count} 組預先指定政策的樣本外 95% CI 均未全數 > 0，"
+                "沒有證據顯示改門檻或改截止日優於第 1 交易日。"
+            )
+        mechanism = _ablation_mechanism(ablation)
+        ablation_body = (
+            "模型預測沿用全特徵 walk-forward，只改買入規則。"
+            f"{policy_count} 組政策在看到樣本外結果前即固定："
+            "門檻為「機率＋保留價／僅機率／僅保留價」，截止為「月底強制」或「第 5 交易日」。"
+            "第 5 日截止來自第一版已公布的 oracle 前 5 日占比"
+            f"（{_percent(oracle_first_5_rate, 1)}），不是從樣本外挑出的參數。\n\n"
+            f"{_policy_ablation_table(ablation)}\n\n"
+            "強制率 = 搜尋窗口內未觸發、於截止日買入的月份比例。"
+            f"正的 vs 第 1 日代表 regret 較低。{ablation_verdict}"
+            + (f"\n\n{mechanism}" if mechanism else "")
+        )
+    else:
+        ablation_body = "本報告輸入未含決策規則拆解結果。"
+
+    if lead_rules:
+        lead_count = len(lead_rules)
+        lead_winners = _policies_beating_day1(lead_rules, LEAD_LABELS)
+        if lead_winners:
+            lead_verdict = (
+                f"預先指定的 {lead_count} 條規則中，{'、'.join(lead_winners)} "
+                "的樣本外 95% CI 全數 > 0。"
+            )
+        else:
+            lead_verdict = (
+                f"{lead_count} 條預先指定領先規則的樣本外 95% CI 均未全數 > 0，"
+                "沒有證據顯示優於第 1 交易日。"
+            )
+        holdout_deltas = [
+            float(item.get("holdout_improvement_bps", 0.0)) for item in lead_rules.values()
+        ]
+        if holdout_deltas and all(delta < 0.0 for delta in holdout_deltas):
+            lead_verdict += f" holdout 上 {lead_count} 條相對第 1 日的點估計仍全為負。"
+        coverage_text = (
+            "樣本外可對齊比例："
+            f"TSM {_percent(float(lead_coverage.get('tsm_available_rate', 0.0)), 1)}，"
+            f"SOX {_percent(float(lead_coverage.get('sox_available_rate', 0.0)), 1)}，"
+            f"USD/TWD {_percent(float(lead_coverage.get('fx_available_rate', 0.0)), 1)}。"
+        )
+        lead_body = (
+            "原三條規則的失敗機制：任意下跌日頻率約一半，配第 5 日截止後幾乎必觸發，等於延後第 1 日；"
+            "美元／新臺幣連續 3 個交易日升值（臺幣連貶）才暫緩則過稀，幾乎就是第 1 日。"
+            "修正版在看到樣本外結果前即凍結："
+            "隔夜大跌改為預先指定的 1%（經濟整數，不是從樣本外掃出的參數）、"
+            "改為第 1 日買入僅在 TSM 隔夜下跌時暫緩、"
+            "匯率改為前一交易日美元／新臺幣升值（臺幣貶值）即暫緩。"
+            "第 5 日截止仍來自已公布的 oracle 前 5 日占比"
+            f"（{_percent(oracle_first_5_rate, 1)}）。"
+            "美股與匯率只使用臺灣交易日曆日前一日（含）已收盤的資料，當日美股不可用於當日開盤決策。"
+            "買入條件為真則當日開盤買，否則第 5 交易日買。"
+            f"{coverage_text}\n\n"
+            f"{_policy_ablation_table(lead_rules, LEAD_LABELS)}\n\n"
+            f"{lead_verdict}\n\n"
+            f"{_lead_mechanism(lead_rules, lead_coverage)}"
+        )
+    else:
+        lead_body = "本報告輸入未含外部領先規則結果。"
+
     random_section = ""
     if random:
         random_section = (
@@ -210,7 +442,7 @@ def render_report(results: Mapping[str, Any]) -> str:
 
     return f"""# 0050 每月最佳買點研究
 
-> 結論：若每月必須只買一次，**第 1 個交易日直接買入**是目前最穩健、最可執行的基準。歷史最佳點常伴隨弱勢特徵，但等待這些訊號在樣本外沒有可靠證據優於月初買入。
+> 結論：若每月必須只買一次，**第 1 個交易日直接買入**是目前最穩健、最可執行的基準。歷史最佳點常伴隨弱勢特徵，但等待這些訊號在樣本外沒有可靠證據優於月初買入。模型、決策規則拆解與外部領先規則亦然：在「每月必買一次、開盤成交、只用 T-1 資訊」的約束下，沒有證據顯示月內擇時能穩定勝過第 1 日。
 
 ---
 
@@ -314,7 +546,15 @@ def render_report(results: Mapping[str, Any]) -> str:
 - **Average Precision**：越高越好。三組模型均在 0.22 左右。
 - **強制買入率超過 50%**：模型的雙重門檻過於嚴格，多數月份被迫月底買入。
 
-## 7. Sealed Holdout 驗證（2023-07 至 2026-06，{holdout_months} 個月）
+## 7. 決策規則拆解（不重訓）
+
+{ablation_body}
+
+## 8. 外部領先規則（不重訓、不掃參）
+
+{lead_body}
+
+## 9. Sealed Holdout 驗證（2023-07 至 2026-06，{holdout_months} 個月）
 
 此區間完全未參與任何開發決策。
 
@@ -327,35 +567,37 @@ def render_report(results: Mapping[str, Any]) -> str:
 
 Holdout 差距更大（{_bps(abs(holdout_model_improvement_bps))})，CI 全 < 0。
 
-## 8. 資料與品質
+## 10. 資料與品質
 
-### 8.1 覆蓋範圍
+### 10.1 覆蓋範圍
 
 - 每日 OHLCV：**{rows:,}** 筆，{quality_start} 至 {quality_end}。
 - 完整月份：276 個（2003-07 至 2026-06）。
 - 企業行動：**{quality_dividend_events}** 次配息、**{quality_split_events}** 次分割。
 - 欄位數：{quality_columns}。
 
-### 8.2 交叉驗證
+### 10.2 交叉驗證
 
 | 來源 | 涵蓋交易日 | 缺值 | 與 FinMind 最大差異 |
 |---|---:|---:|---:|
 | TWSE 官方逐月收盤 | {rows:,} | {official_missing} | {official_difference:.4f} 元 |
 | 元大官方市價 | {rows - issuer_missing:,} | {issuer_missing} | {issuer_difference:.4f} 元 |
 
-### 8.3 估值限制
+### 10.3 估值限制
 
 0050 是 ETF，沒有公司層級 EPS。估值只採 point-in-time NAV 折溢價與 trailing distribution yield。
 
-### 8.4 資料來源
+### 10.4 資料來源
 
 - [TWSE 個股日收盤價及月平均價](https://www.twse.com.tw/zh/trading/historical/stock-day-avg.html)
 - [元大 0050 歷史 NAV](https://www.yuantaetfs.com/tradeInfo/comparison/0050/NAVhistory)
 - [元大 0050 基本資訊與上市日](https://www.yuantaetfs.com/product/detail/0050/Basic_information)
 - [FinMind API 文件](https://finmind.github.io/quickstart/)
+- [FinMind 美股日線 USStockPrice](https://finmind.github.io/tutor/UnitedStatesMarket/Technical/)
+- [FinMind 臺灣銀行匯率 TaiwanExchangeRate](https://finmind.github.io/tutor/ExchangeRate/)
 - [TWSE 交易制度](https://www.twse.com.tw/en/products/system/trading.html)
 
-## 9. 圖表
+## 11. 圖表
 
 ![價格歷史](figures/price_history.png)
 
@@ -365,7 +607,11 @@ Holdout 差距更大（{_bps(abs(holdout_model_improvement_bps))})，CI 全 < 0�
 
 ![策略比較](figures/strategy_comparison.png)
 
-## 10. 限制與注意事項
+![決策規則拆解](figures/policy_ablation.png)
+
+![外部領先規則](figures/lead_rules.png)
+
+## 12. 限制與注意事項
 
 1. **交易假設**：日線研究，假設小額訂單可在開盤集合競價成交。
 2. **關聯非因果**：特徵與最佳日之間是統計關聯，不是因果關係。
@@ -374,33 +620,24 @@ Holdout 差距更大（{_bps(abs(holdout_model_improvement_bps))})，CI 全 < 0�
 5. **Regime change**：所有候選規則都可能因市場環境改變而失效。
 6. **手續費與稅**：期末財富含 0.1425% 手續費，未計證交稅。
 7. **非投資建議**：本報告是量化研究，不構成個人化投資建議。
+8. **月內擇時上限**：oracle 最低點約 73% 不在第 1 日，但那是事後路徑。開盤前可執行訊號（弱勢特徵、隔夜美股、匯率）未能把這段差距變成樣本外 regret 改善；真過濾反而因截止日買入而更差。繼續掃月內門檻會變成 p-hacking，不是新資訊。
 
-## 11. 未來改進方向：如何有可能超越月初直接買入
+## 13. 尚未檢驗的方向
 
-本研究目前得到的負面結果（模型未能擊敗月初第一天買入）是基於**僅使用 0050 自身歷史價格、淨值與基本籌碼這類「落後或同步指標」**的資訊集限制。在不引入外部領先特徵的情況下，股市長期的「正向漂移效應」使得任何等待回檔的擇時策略都必須承受極高的「空倉代價（等待期間被軋空，最後月底被迫追高）」。
+月內選日已測完且未贏第 1 日，見第 7、8 節。剩餘項目改的是「買多少」，不是「哪一天」。
 
-若要打破此邊界，未來研究有機會透過以下三個方向的「極簡特徵」來超越第一日買入：
+### 13.1 月度金額（不是月內擇時）
 
-### 11.1 外部強領先特徵（Lead-Lag Features）
-由於 0050 的台積電權重超過 50%，其本質上受半導體科技股主導。
-- **特徵指標**：前一晚美股台積電 ADR 漲跌幅，或費城半導體指數昨日漲跌幅。
-- **邏輯機制**：美股交易時段早於台股。若美股 ADR 前晚暴跌，今日 0050 開盤幾乎 100% 跳空大跌。利用開盤前已知的「美股未消化資訊」作為開盤買入決策，是物理因果上最強的領先信號。
-
-### 11.2 資金流與跨市場特徵（Liquidity Features）
-台股為外資主導的淺碟市場，外資買賣超決定了 0050 的短中期回檔。
-- **特徵指標**：新台幣兌美元匯率（TWD/USD）日線趨勢，或外資台指期貨淨未平倉口數。
-- **邏輯機制**：新台幣連續貶值期通常伴隨外資撤資回檔。若設定「匯率連續貶值期暫緩扣款，直至匯率止貶回升首日再買」的單一規則，有機會避開外資連續提款的波段下跌。
-
-### 11.3 總體經濟估值特徵（Macro Features）
-將月內擇時放大到月度級別的資金動態配置。
+國發會景氣對策信號屬月頻資訊，應用於每月扣款金額，而不是再挑月內交易日。
 - **特徵指標**：國發會景氣對策信號（紅藍燈）。
-- **邏輯機制**：歷史實證中，景氣「藍燈期」（景氣低迷）通常對應股市長線底部。若規則為「景氣藍燈期，每月第一天加倍扣款；景氣紅燈期（過熱），延遲至月底買入或只買基本額」，在跨越數個景氣循環的長週期下，極可能顯著超越純粹的每月第一天買入。
+- **問題定義**：藍燈期加碼、紅燈期減碼是否提高累積單位；主指標不再是相對當月 oracle 的 regret。
+- **不可宣稱**：尚未回測，不得預設會勝過每月固定金額、第 1 日買入。
 
 > [!WARNING]
 > **多重比較偏誤（Multiple Comparison Bias / p-hacking）**
-> 當我們測試千百種特徵時，純粹基於隨機機率，一定能找到一個在歷史回測上完美的指標組合。但這極可能是數據挖礦產生的噪訊過擬合。未來研究應嚴格遵循「因果邏輯優先」原則，避免濫用過多特徵。
+> 月內規則的門檻與截止日必須預先指定。從樣本外挑最好的 dump 門檻或截止日，不能當作贏過第 1 日的證據。
 
-## 12. 術語表
+## 14. 術語表
 
 | 術語 | 定義 |
 |---|---|
@@ -414,7 +651,11 @@ Holdout 差距更大（{_bps(abs(holdout_model_improvement_bps))})，CI 全 < 0�
 | Average Precision | 正類檢出品質的加權指標 |
 | Moving-block bootstrap | 適用於時間序列的信賴區間估計法 |
 | Reservation price | 模型算出的最高可接受買價 |
-| 強制買入 | 模型整月未觸發，於最後交易日強制執行買入 |
+| 強制買入 | 搜尋窗口內未觸發，於截止日強制執行買入 |
+| 截止日 | 未觸發時的買入日；預設月底，拆解與領先規則另測第 5 交易日 |
+| TSM lead | 臺灣開盤前已知的台積電 ADR 前一美股交易日還原報酬 |
+| SOX lead | 費城半導體指數前一美股交易日還原報酬 |
+| USD/TWD 升值 | 美元兌新臺幣即期中間價上升，即臺幣貶值；單日與三日暫緩都是這個方向 |
 """
 
 
@@ -494,14 +735,45 @@ def _save_strategy_comparison(metrics: Mapping[str, Mapping[str, Any]], path: Pa
     plt.close(fig)
 
 
+def _save_ablation_comparison(
+    ablation: Mapping[str, Mapping[str, Any]],
+    day1_mean_regret: float,
+    path: Path,
+    *,
+    labels: Mapping[str, str] | None = None,
+    title: str = "決策規則拆解：樣本外平均 regret（越低越好）",
+) -> None:
+    name_labels = labels or POLICY_LABELS
+    names = [name for name in name_labels if name in ablation]
+    axis_labels = [name_labels[name] for name in names]
+    values = [float(ablation[name]["mean_regret"]) * 100 for name in names]
+    height = max(4.8, 0.55 * len(names) + 1.8)
+    fig, axis = plt.subplots(figsize=(9.5, height))
+    positions = list(range(len(names)))
+    axis.barh(positions, values, color="#8BA9C4")
+    axis.set_yticks(positions, axis_labels)
+    axis.axvline(day1_mean_regret * 100, color="#174A7E", linestyle="--", label="第1交易日")
+    axis.set_xlabel("平均 regret（%）")
+    axis.set_title(title)
+    axis.invert_yaxis()
+    axis.legend(frameon=False, loc="lower right")
+    fig.tight_layout()
+    fig.savefig(path, bbox_inches="tight")
+    plt.close(fig)
+
+
 def generate_figures(
     daily: pd.DataFrame,
     oracle: pd.DataFrame,
     profile: pd.DataFrame,
     metrics: Mapping[str, Mapping[str, Any]],
     output_dir: Path,
+    *,
+    policy_ablation: Mapping[str, Mapping[str, Any]] | None = None,
+    day1_mean_regret: float | None = None,
+    lead_rules: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> None:
-    """產生報告使用的四張可重建圖表。"""
+    """產生報告使用的可重建圖表。"""
 
     _configure_style()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -509,3 +781,15 @@ def generate_figures(
     _save_oracle_distribution(oracle, output_dir / "oracle_day_distribution.png")
     _save_feature_profile(profile, output_dir / "oracle_feature_profile.png")
     _save_strategy_comparison(metrics, output_dir / "strategy_comparison.png")
+    if policy_ablation and day1_mean_regret is not None:
+        _save_ablation_comparison(
+            policy_ablation, day1_mean_regret, output_dir / "policy_ablation.png"
+        )
+    if lead_rules and day1_mean_regret is not None:
+        _save_ablation_comparison(
+            lead_rules,
+            day1_mean_regret,
+            output_dir / "lead_rules.png",
+            labels=LEAD_LABELS,
+            title="外部領先規則：樣本外平均 regret（越低越好）",
+        )

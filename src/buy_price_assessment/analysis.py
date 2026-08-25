@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -18,6 +18,7 @@ from buy_price_assessment.evaluation import (
     moving_block_bootstrap_ci,
     oracle_feature_profile,
     random_strategy_distribution,
+    select_first_true_or_deadline,
     select_fixed_day,
     select_last_day,
     select_rsi_rule,
@@ -26,6 +27,12 @@ from buy_price_assessment.evaluation import (
 )
 from buy_price_assessment.features import FEATURE_GROUPS, build_features
 from buy_price_assessment.labels import add_monthly_labels, monthly_oracle_table
+from buy_price_assessment.lead import (
+    LEAD_RULES,
+    LEAD_SIGNAL_COLUMNS,
+    attach_lead_features,
+    load_lead_data,
+)
 from buy_price_assessment.modeling import select_monthly_purchases
 from buy_price_assessment.reporting import generate_figures, render_report
 from buy_price_assessment.walk_forward import WalkForwardConfig, walk_forward_predictions
@@ -38,6 +45,28 @@ MODEL_FEATURE_SETS: dict[str, tuple[str, ...]] = {
     "all": tuple(column for group in FEATURE_GROUPS.values() for column in group),
 }
 MODEL_CACHE_VERSION = "2"
+HOLDOUT_START = "2023-07"
+HOLDOUT_END = "2026-06"
+
+
+@dataclass(frozen=True)
+class PurchasePolicy:
+    """預先指定的買入規則；不在樣本外挑選。"""
+
+    name: str
+    probability_threshold: float | None
+    use_reservation: bool
+    fallback_trading_day: int | None
+
+
+PURCHASE_POLICIES: tuple[PurchasePolicy, ...] = (
+    PurchasePolicy("prob_and_res", 0.5, True, None),
+    PurchasePolicy("prob_only", 0.5, False, None),
+    PurchasePolicy("res_only", None, True, None),
+    PurchasePolicy("prob_and_res_deadline5", 0.5, True, 5),
+    PurchasePolicy("prob_only_deadline5", 0.5, False, 5),
+    PurchasePolicy("res_only_deadline5", None, True, 5),
+)
 
 
 def last_complete_month(as_of: date) -> str:
@@ -179,8 +208,14 @@ def _evaluate_models(
 ) -> tuple[dict[str, pd.DataFrame], dict[str, dict[str, int | float]]]:
     purchases: dict[str, pd.DataFrame] = {}
     metrics: dict[str, dict[str, int | float]] = {}
+    default_policy = PURCHASE_POLICIES[0]
     for name, prediction in predictions.items():
-        selected = select_monthly_purchases(prediction, probability_threshold=0.5)
+        selected = select_monthly_purchases(
+            prediction,
+            probability_threshold=default_policy.probability_threshold,
+            use_reservation=default_policy.use_reservation,
+            fallback_trading_day=default_policy.fallback_trading_day,
+        )
         selected["strategy"] = name
         purchases[name] = selected
         item = _metric_with_wealth(selected, terminal_close)
@@ -262,19 +297,97 @@ def _oracle_ranges(labeled: pd.DataFrame, daily: pd.DataFrame) -> dict[str, dict
     return ranges
 
 
+def _holdout_slice(frame: pd.DataFrame) -> pd.DataFrame:
+    return frame.loc[(frame["month"] >= HOLDOUT_START) & (frame["month"] <= HOLDOUT_END)]
+
+
+def _compare_to_day1(
+    purchases: pd.DataFrame,
+    day1: pd.DataFrame,
+    terminal_close: float,
+) -> dict[str, Any]:
+    item: dict[str, Any] = dict(_metric_with_wealth(purchases, terminal_close))
+    improvement, ci = _paired_improvement(purchases, day1)
+    holdout = _holdout_slice(purchases)
+    holdout_improvement, holdout_ci = _paired_improvement(
+        holdout, _holdout_slice(day1), block_length=6
+    )
+    holdout_metrics = strategy_metrics(holdout)
+    item.update(
+        {
+            "improvement_bps": improvement,
+            "ci95_bps": ci,
+            "holdout_mean_regret": float(holdout_metrics["mean_regret"]),
+            "holdout_forced_rate": float(holdout_metrics.get("forced_rate", 0.0)),
+            "holdout_mean_trading_day": float(holdout_metrics["mean_trading_day"]),
+            "holdout_improvement_bps": holdout_improvement,
+            "holdout_ci95_bps": holdout_ci,
+        }
+    )
+    return item
+
+
+def _evaluate_purchase_policies(
+    prediction: pd.DataFrame,
+    day1: pd.DataFrame,
+    terminal_close: float,
+) -> dict[str, dict[str, Any]]:
+    """用既有樣本外預測評估預先指定的買入規則，不重訓模型。"""
+
+    results: dict[str, dict[str, Any]] = {}
+    for policy in PURCHASE_POLICIES:
+        purchases = select_monthly_purchases(
+            prediction,
+            probability_threshold=policy.probability_threshold,
+            use_reservation=policy.use_reservation,
+            fallback_trading_day=policy.fallback_trading_day,
+        )
+        results[policy.name] = _compare_to_day1(purchases, day1, terminal_close)
+    return results
+
+
+def _evaluate_lead_rules(
+    oos: pd.DataFrame,
+    day1: pd.DataFrame,
+    terminal_close: float,
+) -> dict[str, dict[str, Any]]:
+    results: dict[str, dict[str, Any]] = {}
+    for name, column in LEAD_RULES:
+        purchases = select_first_true_or_deadline(oos, column=column, fallback_trading_day=5)
+        item = _compare_to_day1(purchases, day1, terminal_close)
+        item["signal_rate"] = float(oos[column].mean())
+        results[name] = item
+    return results
+
+
+def _lead_coverage(oos: pd.DataFrame) -> dict[str, float]:
+    fx_available = oos["usd_twd_up"] if "usd_twd_up" in oos.columns else oos["usd_twd_up_streak3"]
+    return {
+        "tsm_available_rate": float(oos["tsm_lead_ret"].notna().mean()),
+        "sox_available_rate": float(oos["sox_lead_ret"].notna().mean()),
+        "fx_available_rate": float(fx_available.notna().mean()),
+        "tsm_dump_rate": float(oos["tsm_dump"].mean()),
+        "sox_dump_rate": float(oos["sox_dump"].mean()),
+        "fx_pause_rate": float((~oos["fx_not_depreciating"]).mean()),
+        "tsm_dump_1pct_rate": float(oos["tsm_dump_1pct"].mean()),
+        "tsm_adverse_rate": float((~oos["tsm_not_dump"]).mean()),
+        "fx_single_pause_rate": float((~oos["fx_not_up"]).mean()),
+    }
+
+
 def _holdout_result(
     labeled: pd.DataFrame,
     model_purchases: pd.DataFrame,
 ) -> dict[str, Any]:
-    development = labeled.loc[(labeled["month"] >= "2008-07") & (labeled["month"] < "2023-07")]
-    holdout = labeled.loc[(labeled["month"] >= "2023-07") & (labeled["month"] <= "2026-06")]
+    development = labeled.loc[(labeled["month"] >= "2008-07") & (labeled["month"] < HOLDOUT_START)]
+    holdout = _holdout_slice(labeled)
     candidates = {
         day: select_fixed_day(development, trading_day=day)["regret"].mean()
         for day in (1, 5, 10, 15)
     }
     selected_day = min(candidates, key=lambda day: candidates[day])
     fixed = select_fixed_day(holdout, trading_day=selected_day)
-    model = model_purchases.loc[model_purchases["month"] >= "2023-07"]
+    model = _holdout_slice(model_purchases)
     improvement, ci = _paired_improvement(model, fixed, block_length=6)
     fixed_metrics = strategy_metrics(fixed)
     model_metrics = strategy_metrics(model)
@@ -315,6 +428,7 @@ def _build_results(
     purchases: Mapping[str, pd.DataFrame],
     metrics: dict[str, dict[str, int | float]],
     baselines: Mapping[str, pd.DataFrame],
+    policy_ablation: Mapping[str, Mapping[str, Any]],
 ) -> dict[str, Any]:
     day1 = baselines["fixed_day_1"]
     model = purchases["all"]
@@ -334,6 +448,7 @@ def _build_results(
         "holdout": _holdout_result(labeled, model),
         "day1_vs_day5": {"improvement_bps": day_comparison, "ci95_bps": day_ci},
         "strategy_metrics": metrics,
+        "policy_ablation": dict(policy_ablation),
     }
 
 
@@ -342,6 +457,7 @@ def run_analysis(
     daily_path: Path = Path("data/processed/0050_daily.csv"),
     processed_dir: Path = Path("data/processed"),
     reports_dir: Path = Path("reports"),
+    raw_dir: Path = Path("data/raw"),
     as_of: date | None = None,
     reuse_existing_predictions: bool = True,
 ) -> dict[str, Any]:
@@ -350,8 +466,11 @@ def run_analysis(
     processed_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)
     daily = pd.read_csv(daily_path, parse_dates=["date", "feature_available_date"])
-    complete_through = last_complete_month(as_of or date.today())
+    complete_through = last_complete_month(as_of or daily["date"].max().date())
     features, labeled, oracle = _prepare_frames(daily, complete_through)
+    lead = load_lead_data(raw_dir)
+    if lead is not None:
+        labeled = attach_lead_features(labeled, tsm=lead["tsm"], sox=lead["sox"], fx=lead["fx"])
     predictions = _model_outputs(labeled, processed_dir, reuse_existing=reuse_existing_predictions)
     first_oos = min(frame["month"].min() for frame in predictions.values())
     oos = labeled.loc[labeled["month"] >= first_oos].reset_index(drop=True)
@@ -361,12 +480,22 @@ def run_analysis(
     metrics.update(
         {name: _metric_with_wealth(frame, terminal_close) for name, frame in baselines.items()}
     )
-    results = _build_results(daily, labeled, oracle, purchases, metrics, baselines)
+    policy_ablation = _evaluate_purchase_policies(
+        predictions["all"], baselines["fixed_day_1"], terminal_close
+    )
+    lead_rules: dict[str, dict[str, Any]] = {}
+    lead_coverage: dict[str, float] = {}
+    if set(LEAD_SIGNAL_COLUMNS).issubset(oos.columns):
+        lead_rules = _evaluate_lead_rules(oos, baselines["fixed_day_1"], terminal_close)
+        lead_coverage = _lead_coverage(oos)
+    results = _build_results(daily, labeled, oracle, purchases, metrics, baselines, policy_ablation)
     random = random_strategy_distribution(oos)
     results["random_strategy"] = {
         "mean_regret": float(random.mean()),
         "ci95": [float(value) for value in np.quantile(random, [0.025, 0.975])],
     }
+    results["lead_rules"] = lead_rules
+    results["lead_coverage"] = lead_coverage
     profile = oracle_feature_profile(labeled, MODEL_FEATURE_SETS["all"])
 
     features.to_csv(processed_dir / "0050_features.csv", index=False, encoding="utf-8-sig")
@@ -385,5 +514,14 @@ def run_analysis(
     (reports_dir / "0050_buy_point_analysis.md").write_text(
         render_report(results), encoding="utf-8"
     )
-    generate_figures(daily, oracle, profile, metrics, reports_dir / "figures")
+    generate_figures(
+        daily,
+        oracle,
+        profile,
+        metrics,
+        reports_dir / "figures",
+        policy_ablation=policy_ablation,
+        day1_mean_regret=float(metrics["fixed_day_1"]["mean_regret"]),
+        lead_rules=lead_rules,
+    )
     return results

@@ -7,8 +7,47 @@ from buy_price_assessment.repositories import (
     parse_finmind_margin,
     parse_finmind_prices,
     parse_twse_monthly_closes,
+    parse_us_prices,
+    parse_usd_twd,
     parse_yuanta_nav,
 )
+
+
+def test_parse_us_prices_keeps_adjusted_close() -> None:
+    result = parse_us_prices(
+        [
+            {
+                "date": "2003-06-02",
+                "stock_id": "TSM",
+                "Adj_Close": 3.76,
+                "Close": 7.61,
+            }
+        ],
+        source="FinMind USStockPrice TSM",
+    )
+    assert result.loc[0, "date"] == pd.Timestamp("2003-06-02")
+    assert result.loc[0, "adj_close"] == pytest.approx(3.76)
+
+
+def test_parse_usd_twd_drops_invalid_spot_quotes() -> None:
+    result = parse_usd_twd(
+        [
+            {
+                "date": "2006-01-02",
+                "currency": "USD",
+                "spot_buy": -99,
+                "spot_sell": -99,
+            },
+            {
+                "date": "2006-01-03",
+                "currency": "USD",
+                "spot_buy": 32.595,
+                "spot_sell": 32.695,
+            },
+        ]
+    )
+    assert result["date"].tolist() == [pd.Timestamp("2006-01-03")]
+    assert result.loc[0, "usd_twd"] == pytest.approx(32.645)
 
 
 def test_parse_finmind_prices_normalizes_schema() -> None:

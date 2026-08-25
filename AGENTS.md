@@ -10,5 +10,9 @@
 - 不可硬編碼 secrets；新增依賴前檢查維護狀態與漏洞並鎖定版本。
 - Python 固定 3.12 並使用 `uv`；完成驗證至少執行 `ruff format --check`、`ruff check`、`mypy`、`pytest`。
 - TWSE 全歷史月資料只能單線節流並使用逐月快取，不可平行轟炸官方端點。
+- 分析完整月份截止以資料末日推算，不可用執行當日把不完整月標成完整月。
+- 跨市場領先序列以目標日 T-1 為 as-of，不可用當日美股收盤做當日開盤決策。
+- 訊號截止日必須限制搜尋窗口；月內第 6 日之後的訊號不可當成第 5 日截止規則的觸發。
+- 匯率規則表頭必須與 `usd_twd_up` 同向：USD/TWD 上升 = 臺幣貶值。
 - 每次任務完成同步精簡維護 `AGENTS.md`、`CLAUDE.md`、`CONTEXT.md`。
 - Commit 格式為 `<type>: <description>`，type 限 `feat|fix|refactor|docs|test|chore|perf|ci`。

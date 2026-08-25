@@ -53,6 +53,34 @@ def _numeric(frame: pd.DataFrame, columns: Sequence[str], source: str) -> pd.Dat
     return result
 
 
+def parse_us_prices(rows: Sequence[Mapping[str, Any]], *, source: str) -> pd.DataFrame:
+    """正規化美股還原收盤；報酬必須用 adj_close，避免分割被當成暴跌。"""
+
+    _require_columns(rows, {"date", "Adj_Close"}, source)
+    frame = pd.DataFrame(rows).rename(columns={"Adj_Close": "adj_close"})
+    result = _numeric(frame.loc[:, ["date", "adj_close"]], ["adj_close"], source)
+    if (result["adj_close"] <= 0.0).any():
+        raise DataSourceError(f"{source} 含非正還原收盤價")
+    return _normalize_date(result, source)
+
+
+def parse_usd_twd(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
+    """臺灣銀行即期中間價；-99 與非正數視為缺值。"""
+
+    source = "FinMind TaiwanExchangeRate USD"
+    _require_columns(rows, {"date", "spot_buy", "spot_sell"}, source)
+    frame = pd.DataFrame(rows)
+    buy = pd.to_numeric(frame["spot_buy"], errors="coerce")
+    sell = pd.to_numeric(frame["spot_sell"], errors="coerce")
+    mid = (buy + sell) / 2.0
+    invalid = buy.isna() | sell.isna() | (buy <= 0.0) | (sell <= 0.0)
+    frame["usd_twd"] = mid.mask(invalid)
+    result = frame.loc[frame["usd_twd"].notna(), ["date", "usd_twd"]]
+    if result.empty:
+        raise DataSourceError(f"{source} 沒有有效即期匯率")
+    return _normalize_date(result, source)
+
+
 def parse_finmind_prices(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
     """將 FinMind OHLCV 欄位正規化。"""
 
@@ -252,18 +280,29 @@ class FinMindRepository:
     client: httpx.Client
     stock_id: str = "0050"
 
-    def _fetch(self, dataset: str, start: date, end: date) -> list[dict[str, Any]]:
+    def _fetch(
+        self, dataset: str, start: date, end: date, *, data_id: str | None = None
+    ) -> list[dict[str, Any]]:
         payload = _get_json(
             self.client,
             FINMIND_URL,
             params={
                 "dataset": dataset,
-                "data_id": self.stock_id,
+                "data_id": self.stock_id if data_id is None else data_id,
                 "start_date": start.isoformat(),
                 "end_date": end.isoformat(),
             },
         )
         return validate_finmind_response(payload, dataset)
+
+    def us_adj_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        return parse_us_prices(
+            self._fetch("USStockPrice", start, end, data_id=symbol),
+            source=f"FinMind USStockPrice {symbol}",
+        )
+
+    def usd_twd(self, start: date, end: date) -> pd.DataFrame:
+        return parse_usd_twd(self._fetch("TaiwanExchangeRate", start, end, data_id="USD"))
 
     def prices(self, start: date, end: date) -> pd.DataFrame:
         return parse_finmind_prices(self._fetch("TaiwanStockPrice", start, end))

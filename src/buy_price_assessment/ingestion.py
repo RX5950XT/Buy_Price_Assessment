@@ -111,6 +111,13 @@ def _write_raw_frames(raw_dir: Path, frames: dict[str, pd.DataFrame]) -> None:
         frame.to_csv(raw_dir / f"0050_{name}.csv", index=False, encoding="utf-8-sig")
 
 
+def _write_lead_frames(raw_dir: Path, frames: dict[str, pd.DataFrame]) -> None:
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    names = {"tsm": "tsm_us.csv", "sox": "sox_us.csv", "fx": "usd_twd.csv"}
+    for key, filename in names.items():
+        frames[key].to_csv(raw_dir / filename, index=False, encoding="utf-8-sig")
+
+
 def download_daily_data(
     *,
     start: date = date(2003, 6, 30),
@@ -134,8 +141,13 @@ def download_daily_data(
                 "margin": executor.submit(finmind.margin, start, final_date),
                 "institutions": executor.submit(finmind.institutional, start, final_date),
                 "nav": executor.submit(yuanta.nav, start, final_date),
+                "tsm": executor.submit(finmind.us_adj_prices, "TSM", start, final_date),
+                "sox": executor.submit(finmind.us_adj_prices, "^SOX", start, final_date),
+                "fx": executor.submit(finmind.usd_twd, start, final_date),
             }
             frames = {name: future.result() for name, future in futures.items()}
+        lead = {name: frames.pop(name) for name in ("tsm", "sox", "fx")}
+        _write_lead_frames(raw_dir, lead)
         if validate_all_twse_months:
             twse = TwseRepository(client, cache_dir=raw_dir / "twse_monthly_close")
             frames["official"] = twse.closes(start, final_date + timedelta(days=1))

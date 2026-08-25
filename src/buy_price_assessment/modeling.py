@@ -86,13 +86,26 @@ def _validated_initial_months(value: object) -> int:
     return int(value)
 
 
-def _validated_probability_threshold(value: object) -> float:
+def _validated_probability_threshold(value: object) -> float | None:
+    if value is None:
+        return None
     if isinstance(value, bool) or not isinstance(value, Real):
         raise TypeError("probability_threshold 必須是數值")
     threshold = float(value)
     if not math.isfinite(threshold) or not 0.0 <= threshold <= 1.0:
         raise ValueError("probability_threshold 必須介於 0 與 1")
     return threshold
+
+
+def _validated_fallback_trading_day(value: object) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, Integral):
+        raise TypeError("fallback_trading_day 必須是整數")
+    day = int(value)
+    if day < 1:
+        raise ValueError("fallback_trading_day 必須是正整數")
+    return day
 
 
 def _validated_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
@@ -153,17 +166,47 @@ def _validate_prediction_ranges(frame: pd.DataFrame) -> None:
             raise ValueError("每個月份必須包含完整且不重複的交易日")
 
 
+def _eligible_days(
+    month_frame: pd.DataFrame,
+    *,
+    probability_threshold: float | None,
+    use_reservation: bool,
+    fallback_trading_day: int | None,
+) -> pd.DataFrame:
+    candidate = month_frame
+    if fallback_trading_day is not None:
+        candidate = month_frame.loc[month_frame["trading_day"] <= fallback_trading_day]
+    mask = pd.Series(True, index=candidate.index)
+    if probability_threshold is not None:
+        mask &= candidate["near_probability"] >= probability_threshold
+    if use_reservation:
+        mask &= candidate["adjusted_open"] <= candidate["reservation_adjusted"]
+    return candidate.loc[mask]
+
+
+def _deadline_row(month_frame: pd.DataFrame, fallback_trading_day: int | None) -> pd.Series:
+    last_day = int(month_frame["days_in_month"].iloc[0])
+    target = last_day if fallback_trading_day is None else min(fallback_trading_day, last_day)
+    return month_frame.loc[month_frame["trading_day"] == target].iloc[0]
+
+
 def select_monthly_purchases(
     predictions: pd.DataFrame,
     *,
-    probability_threshold: float,
+    probability_threshold: float | None = 0.5,
+    use_reservation: bool = True,
+    fallback_trading_day: int | None = None,
 ) -> pd.DataFrame:
-    """每月選擇首個同時通過機率與保留價門檻的交易日。
+    """每月選擇首個通過指定門檻的交易日。
 
-    若整月都未觸發, 則在該月最後交易日強制買入, 確保每月恰好買一次。
+    預設同時要求機率與保留價。若搜尋窗口內未觸發，則在截止日強制買入；
+    截止日預設為該月最後交易日。
     """
 
+    if not isinstance(use_reservation, bool):
+        raise TypeError("use_reservation 必須是布林值")
     threshold = _validated_probability_threshold(probability_threshold)
+    deadline = _validated_fallback_trading_day(fallback_trading_day)
     frame = _validated_predictions(predictions)
     if frame.empty:
         result = frame.copy()
@@ -172,12 +215,14 @@ def select_monthly_purchases(
 
     selected_rows: list[pd.Series] = []
     for _, month_frame in frame.groupby("month", sort=True):
-        eligible = month_frame.loc[
-            (month_frame["near_probability"] >= threshold)
-            & (month_frame["adjusted_open"] <= month_frame["reservation_adjusted"])
-        ]
+        eligible = _eligible_days(
+            month_frame,
+            probability_threshold=threshold,
+            use_reservation=use_reservation,
+            fallback_trading_day=deadline,
+        )
         forced = eligible.empty
-        selected = month_frame.iloc[-1] if forced else eligible.iloc[0]
+        selected = _deadline_row(month_frame, deadline) if forced else eligible.iloc[0]
         selected = selected.copy()
         selected["forced"] = forced
         selected_rows.append(selected)

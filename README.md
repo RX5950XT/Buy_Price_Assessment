@@ -12,6 +12,9 @@
 - **獨立 Sealed Holdout 驗證**：在完全隔離且未參與任何開發決策的 holdout 期間（2023-07～2026-06，共 36 個月），第 1 日平均 regret 降至 **2.58%**（且高達 **52.8%** 的月份買在最低價 0.5% 內），而 ML 模型平均 regret 爲 **5.79%**（差距 **321 bps**），結論高度一致。
 - **隨機對照基準**：每月均勻隨機選一天買入（5,000 次模擬）的平均 regret 爲 **3.77%** (95% CI [3.43%, 4.11%])。第 1 日（3.20%）顯著優於隨機中位，證實月初的領先優勢並非運氣，而是源於股市長期的「正向漂移效應」（資金在市場裡的時間越長，越早享受平均正報酬）。
 - **ML 策略落敗主因**：模型基於「近最佳日機率分類器 + 剩餘月內最低價 Quantile 迴歸器」的雙重決策門檻過於嚴苛，導致 **53.2%～56.0% 的月份整月無信號觸發**，被迫於月底最後一日強制買入，因而錯失月初的價格低價波段。
+- **決策規則拆解（不重訓）**：拿掉保留價後強制率降至 7.9%、平均 regret 3.33%；第 5 日截止把雙門檻從 4.36% 拉到 3.35%。六組預先指定政策的樣本外 95% CI 均未顯示優於第 1 日（3.20%）；holdout 點估計仍全為負。
+- **外部領先規則（不掃參）**：6 條預先指定規則樣本外 CI 均未贏第 1 日（3.20%）；holdout 點估計全為負。TSM ≥1% 大跌屬過濾（3.40%、強制率 26.4%、平均第 3.0 日，−19 bps）。第 1 日除非隔夜下跌、臺幣單日貶值暫緩仍屬延後買入（皆 3.23%、強制率 2.3%、平均第 1.8 日）。美股與匯率對齊只用臺灣日 T-1 已收盤資料；USD/TWD 上升 = 臺幣貶值。
+- **月內擇時判斷**：在「每月必須買一次、開盤成交、只用開盤前已知資訊」的約束下，模型、六組決策規則與六條領先規則都沒有樣本外證據優於第 1 日。理論上約 73% 月份最低點不在第 1 日，但可執行訊號抓不到，等待卻付正漂移成本。剩餘未測是月度扣款金額（景氣燈），不是再掃月內門檻。
 - **最佳日特徵畫像**：事後最低點的前一日特徵中位數表現為：5 日報酬 -1.59%、低於 20 日均線 1.42%、RSI(14) 41.1、距 60 日高點回檔 5.20%。但嘗試在樣本外「等待」這些特徵，代價是面臨高額的空倉機會成本。當日開盤相對已調整權息／分割的前收中位數為 -0.13%（四分位數區間為 -0.74% 至 +0.09%），跨 23 年不應使用單一固定新臺幣價格作為觸發點。
 
 完整數據、限制與圖表見 [`reports/0050_buy_point_analysis.md`](reports/0050_buy_point_analysis.md)。
@@ -50,6 +53,8 @@
   - [元大 0050 歷史 NAV 數據庫](https://www.yuantaetfs.com/tradeInfo/comparison/0050/NAVhistory)
   - [元大 0050 基本資訊與上市日](https://www.yuantaetfs.com/product/detail/0050/Basic_information)
   - [FinMind API 數據服務](https://finmind.github.io/quickstart/)
+  - [FinMind 美股日線 USStockPrice](https://finmind.github.io/tutor/UnitedStatesMarket/Technical/)（TSM ADR、`^SOX`）
+  - [FinMind 臺灣銀行匯率 TaiwanExchangeRate](https://finmind.github.io/tutor/ExchangeRate/)（USD/TWD 即期中間價）
   - [TWSE 交易制度與撮合規則](https://www.twse.com.tw/en/products/system/trading.html)
 
 ---
@@ -75,7 +80,7 @@ uv run pytest -q
 個別階段執行命令：
 
 ```powershell
-# 僅下載並交叉驗證數據（採單線節流與逐月快取）
+# 僅下載並交叉驗證數據（TWSE 單線節流與逐月快取；同時抓 TSM／SOX／USD/TWD）
 uv run buy-price-assessment fetch --validate-all-twse-months
 
 # 僅進行回測分析與報告渲染（會驗證 cache 指紋，特徵或設定改變時快取會失效）
@@ -101,6 +106,13 @@ uv run buy-price-assessment analyze --force-models
 | `data/processed/walk_forward_all.csv` | 「全特徵」模型每月樣本外決策買點與 regret 明細 |
 | `reports/research_results.json` | 完整統計指標、信賴區間與隨機策略 5,000 次模擬結果的 JSON 快取 |
 | `reports/0050_buy_point_analysis.md` | 重建後的繁體中文深度研究報告與 matplotlib 圖表 |
+| `reports/figures/policy_ablation.png` | 六組預先指定買入規則相對第 1 日的樣本外平均 regret |
+| `data/raw/tsm_us.csv` | 台積電 ADR 還原收盤（FinMind USStockPrice） |
+| `data/raw/sox_us.csv` | 費城半導體指數還原收盤（FinMind `^SOX`） |
+| `data/raw/usd_twd.csv` | 美元／新臺幣即期中間價（FinMind TaiwanExchangeRate） |
+| `reports/figures/lead_rules.png` | 外部領先規則（原三條＋失敗機制修正版）相對第 1 日的樣本外平均 regret |
+
+`data/raw/` 的 TWSE 月檔、TSM／SOX／USD/TWD 可由 `fetch` 重建，不進 git。分析領先規則前需先抓齊這三份外部序列。
 
 ---
 

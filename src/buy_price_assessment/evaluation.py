@@ -52,6 +52,42 @@ def select_rsi_rule(frame: pd.DataFrame, *, threshold: float = 30.0) -> pd.DataF
     return pd.DataFrame(selected).reset_index(drop=True)
 
 
+def select_first_true_or_deadline(
+    frame: pd.DataFrame,
+    *,
+    column: str,
+    fallback_trading_day: int = 5,
+) -> pd.DataFrame:
+    """每月首次訊號為真時買；否則在截止交易日買。"""
+
+    _validate_monthly_rows(frame)
+    if column not in frame.columns:
+        raise ValueError(f"訊號規則缺少 {column}")
+    if (
+        isinstance(fallback_trading_day, bool)
+        or not isinstance(fallback_trading_day, int)
+        or fallback_trading_day < 1
+    ):
+        raise ValueError("fallback_trading_day 必須是正整數")
+    selected: list[pd.Series] = []
+    for _, month in frame.sort_values("date").groupby("month", sort=True):
+        ordered = month.sort_values(["trading_day", "date"], kind="mergesort")
+        window = ordered.loc[ordered["trading_day"] <= fallback_trading_day]
+        if window.empty:
+            window = ordered.iloc[[0]]
+        triggered = window.loc[window[column].fillna(False).astype(bool)]
+        if triggered.empty:
+            row = window.iloc[-1].copy()
+            row["forced"] = True
+        else:
+            row = triggered.iloc[0].copy()
+            row["forced"] = False
+        selected.append(row)
+    result = pd.DataFrame(selected).reset_index(drop=True)
+    result["forced"] = result["forced"].astype(bool)
+    return result
+
+
 def strategy_metrics(purchases: pd.DataFrame) -> dict[str, int | float]:
     """以月份為觀測單位計算策略結果。"""
 
