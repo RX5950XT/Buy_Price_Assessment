@@ -304,9 +304,37 @@ def _model_diagnostics_table(metrics: Mapping[str, Mapping[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _report_meta(results: Mapping[str, Any]) -> dict[str, Any]:
+    defaults: dict[str, Any] = {
+        "instrument": "0050",
+        "display_name": "0050",
+        "first_complete_month": "2003-07",
+        "oos_start": "2008-07",
+        "oos_end": "2026-06",
+        "oos_months": 216,
+        "primary_model": "all",
+        "primary_label": "全特徵模型",
+        "figure_relpath": "figures",
+        "currency_label": "新臺幣",
+        "fill_note": "開盤集合競價可確保成交，盤中低點不一定成交。",
+        "lead_market_note": (
+            "美股與匯率只使用臺灣交易日曆日前一日（含）已收盤的資料，當日美股不可用於當日開盤決策。"
+        ),
+        "has_taiwan_crosscheck": True,
+        "deadline_first_5_rate": 0.482,
+    }
+    merged = {**defaults, **(results.get("meta") or {})}
+    metrics = results.get("strategy_metrics") or {}
+    day1 = metrics.get("fixed_day_1") or {}
+    if "months" in day1:
+        merged["oos_months"] = int(day1["months"])
+    return merged
+
+
 def render_report(results: Mapping[str, Any]) -> str:
     """把已驗證的研究統計轉為可交接的繁中 Markdown。"""
 
+    meta = _report_meta(results)
     quality = results.get("data_quality", {}) or {}
     oracle = results.get("oracle_distribution", {}) or {}
     primary = results.get("primary", {}) or {}
@@ -372,11 +400,12 @@ def render_report(results: Mapping[str, Any]) -> str:
             )
         mechanism = _ablation_mechanism(ablation)
         ablation_body = (
-            "模型預測沿用全特徵 walk-forward，只改買入規則。"
+            f"模型預測沿用{meta['primary_label']} walk-forward，只改買入規則。"
             f"{policy_count} 組政策在看到樣本外結果前即固定："
             "門檻為「機率＋保留價／僅機率／僅保留價」，截止為「月底強制」或「第 5 交易日」。"
-            "第 5 日截止來自第一版已公布的 oracle 前 5 日占比"
-            f"（{_percent(oracle_first_5_rate, 1)}），不是從樣本外挑出的參數。\n\n"
+            "第 5 日截止來自 0050 第一版已公布的 oracle 前 5 日占比"
+            f"（{_percent(float(meta.get('deadline_first_5_rate', 0.482)), 1)}），"
+            "不是從此標的樣本外挑出的參數。\n\n"
             f"{_policy_ablation_table(ablation)}\n\n"
             "強制率 = 搜尋窗口內未觸發、於截止日買入的月份比例。"
             f"正的 vs 第 1 日代表 regret 較低。{ablation_verdict}"
@@ -416,9 +445,10 @@ def render_report(results: Mapping[str, Any]) -> str:
             "隔夜大跌改為預先指定的 1%（經濟整數，不是從樣本外掃出的參數）、"
             "改為第 1 日買入僅在 TSM 隔夜下跌時暫緩、"
             "匯率改為前一交易日美元／新臺幣升值（臺幣貶值）即暫緩。"
-            "第 5 日截止仍來自已公布的 oracle 前 5 日占比"
-            f"（{_percent(oracle_first_5_rate, 1)}）。"
-            "美股與匯率只使用臺灣交易日曆日前一日（含）已收盤的資料，當日美股不可用於當日開盤決策。"
+            "第 5 日截止仍來自 0050 已公布的 oracle 前 5 日占比"
+            f"（{_percent(float(meta.get('deadline_first_5_rate', 0.482)), 1)}），"
+            "不依此標的樣本重估。"
+            f"{meta['lead_market_note']}"
             "買入條件為真則當日開盤買，否則第 5 交易日買。"
             f"{coverage_text}\n\n"
             f"{_policy_ablation_table(lead_rules, LEAD_LABELS)}\n\n"
@@ -440,15 +470,122 @@ def render_report(results: Mapping[str, Any]) -> str:
             "表示月初的優勢不僅是運氣。"
         )
 
-    return f"""# 0050 每月最佳買點研究
+    display_name = str(meta["display_name"])
+    first_complete_month = str(meta["first_complete_month"])
+    oos_start = str(meta["oos_start"])
+    oos_end = str(meta["oos_end"])
+    oos_months = int(meta["oos_months"])
+    primary_label = str(meta["primary_label"])
+    figure_relpath = str(meta["figure_relpath"])
+    fill_note = str(meta["fill_note"])
+    currency_label = str(meta["currency_label"])
+    has_taiwan_crosscheck = bool(meta["has_taiwan_crosscheck"])
+    ci_lo = float(model_ci[0])
+    ci_hi = float(model_ci[1])
+    holdout_lo = float(holdout_ci[0])
+    holdout_hi = float(holdout_ci[1])
+    if ci_lo > 0.0 and ci_hi > 0.0:
+        lead_conclusion = (
+            f"在「每月必買一次、開盤成交、只用 T-1 資訊」的約束下，"
+            f"{primary_label} 的樣本外 95% CI 全數 > 0。"
+        )
+        model_delta = (
+            f"模型比第 1 日平均好 **{_bps(primary_model_improvement_bps)}**，"
+            f"95% moving-block bootstrap CI 為 **[{_bps(ci_lo)}, {_bps(ci_hi)}]**。"
+            "CI 全數 > 0。"
+        )
+    elif ci_hi < 0.0 and ci_lo < 0.0:
+        lead_conclusion = (
+            "歷史最佳點常伴隨弱勢特徵，但等待這些訊號在樣本外沒有可靠證據優於月初買入。"
+            "模型、決策規則拆解與外部領先規則亦然：在「每月必買一次、開盤成交、只用 T-1 資訊」"
+            "的約束下，沒有證據顯示月內擇時能穩定勝過第 1 日。"
+        )
+        model_delta = (
+            f"模型比第 1 日平均差 **{_bps(abs(primary_model_improvement_bps))}**，"
+            f"95% moving-block bootstrap CI 為 **[{_bps(ci_lo)}, {_bps(ci_hi)}]**。"
+            "CI 全數 < 0，等待模型訊號**顯著較差**。"
+        )
+    else:
+        lead_conclusion = (
+            "歷史最佳點常伴隨弱勢特徵，但等待這些訊號在樣本外沒有可靠證據優於月初買入。"
+        )
+        model_delta = (
+            f"模型相對第 1 日 **{_bps(primary_model_improvement_bps)}**，"
+            f"95% moving-block bootstrap CI 為 **[{_bps(ci_lo)}, {_bps(ci_hi)}]**。"
+            "CI 跨越 0，沒有證據顯示優於第 1 日。"
+        )
+    if holdout_hi < 0.0 and holdout_lo < 0.0:
+        holdout_verdict = (
+            f"Holdout 差距更大（{_bps(abs(holdout_model_improvement_bps))}），CI 全 < 0。"
+        )
+    elif holdout_lo > 0.0 and holdout_hi > 0.0:
+        holdout_verdict = "Holdout 的 95% CI 全數 > 0。"
+    else:
+        holdout_verdict = "Holdout 的 95% CI 跨越 0，不能宣稱優於第 1 日。"
+    if has_taiwan_crosscheck:
+        feature_section = """所有特徵分為四類，共 22 個：
 
-> 結論：若每月必須只買一次，**第 1 個交易日直接買入**是目前最穩健、最可執行的基準。歷史最佳點常伴隨弱勢特徵，但等待這些訊號在樣本外沒有可靠證據優於月初買入。模型、決策規則拆解與外部領先規則亦然：在「每月必買一次、開盤成交、只用 T-1 資訊」的約束下，沒有證據顯示月內擇時能穩定勝過第 1 日。
+**技術面（11 個）**：1/5/20/60 日報酬、距 20/60 日均線、RSI(14)、布林 Z(20)、距 60 日高點、20 日年化波動率、成交量 Z(20)。
+
+**估值面（2 個）**：NAV 折溢價、TTM 配息殖利率。
+
+**籌碼面（5 個）**：融資 5 日變化率、融券 5 日變化率、法人淨買賣比、法人資料可得標記、基金流量 5 日變化率。
+
+**日曆面（4 個）**：月內交易日序號、月進度（日曆日比例）、星期三角編碼（sin/cos）。
+
+**關鍵防偷看設計**：所有日終特徵（技術、估值、籌碼）向後延遲一個交易日。日曆特徵無需延遲。月進度使用日曆日比例（date.day / days_in_month）。"""
+        model_combo = """| 模型名稱 | 特徵組合 | 特徵數 |
+|---|---|---:|
+| 技術＋日曆 | technical + calendar | 15 |
+| 技術＋估值＋日曆 | technical + valuation + calendar | 17 |
+| 全特徵 | technical + valuation + chip + calendar | 22 |"""
+        cross_check = f"""| 來源 | 涵蓋交易日 | 缺值 | 與 FinMind 最大差異 |
+|---|---:|---:|---:|
+| TWSE 官方逐月收盤 | {rows:,} | {official_missing} | {official_difference:.4f} 元 |
+| 元大官方市價 | {rows - issuer_missing:,} | {issuer_missing} | {issuer_difference:.4f} 元 |"""
+        valuation_note = "0050 是 ETF，沒有公司層級 EPS。估值只採 point-in-time NAV 折溢價與 trailing distribution yield。"
+        sources = """- [TWSE 個股日收盤價及月平均價](https://www.twse.com.tw/zh/trading/historical/stock-day-avg.html)
+- [元大 0050 歷史 NAV](https://www.yuantaetfs.com/tradeInfo/comparison/0050/NAVhistory)
+- [元大 0050 基本資訊與上市日](https://www.yuantaetfs.com/product/detail/0050/Basic_information)
+- [FinMind API 文件](https://finmind.github.io/quickstart/)
+- [FinMind 美股日線 USStockPrice](https://finmind.github.io/tutor/UnitedStatesMarket/Technical/)
+- [FinMind 臺灣銀行匯率 TaiwanExchangeRate](https://finmind.github.io/tutor/ExchangeRate/)
+- [TWSE 交易制度](https://www.twse.com.tw/en/products/system/trading.html)"""
+        fill_assumption = "日線研究，假設小額訂單可在開盤集合競價成交。"
+        single_name = "只研究 0050 一檔 ETF。"
+    else:
+        feature_section = """VT 沒有點時 NAV、融資融券與三大法人，主模型只用技術＋日曆，共 15 個特徵，對應 0050 的 technical_calendar：
+
+**技術面（11 個）**：1/5/20/60 日報酬、距 20/60 日均線、RSI(14)、布林 Z(20)、距 60 日高點、20 日年化波動率、成交量 Z(20)。
+
+**日曆面（4 個）**：月內交易日序號、月進度（日曆日比例）、星期三角編碼（sin/cos）。
+
+**關鍵防偷看設計**：所有日終特徵向後延遲一個交易日。日曆特徵無需延遲。月進度使用日曆日比例。"""
+        model_combo = """| 模型名稱 | 特徵組合 | 特徵數 |
+|---|---|---:|
+| 技術＋日曆 | technical + calendar | 15 |"""
+        cross_check = (
+            "單一來源 FinMind USStockPrice（原始 OHLC + Adj_Close）。"
+            "adjusted_open = open × (Adj_Close / Close)。"
+            "沒有 TWSE／發行人 NAV 第二來源。"
+        )
+        valuation_note = "VT 複製實驗不使用估值與籌碼特徵，避免用假 NAV 或全零籌碼訓練模型。"
+        sources = """- [FinMind 美股日線 USStockPrice](https://finmind.github.io/tutor/UnitedStatesMarket/Technical/)（VT 原始 OHLC 與 Adj_Close）
+- [FinMind 美股日線 USStockPrice](https://finmind.github.io/tutor/UnitedStatesMarket/Technical/)（TSM ADR、`^SOX` 領先序列）
+- [FinMind 臺灣銀行匯率 TaiwanExchangeRate](https://finmind.github.io/tutor/ExchangeRate/)
+- [Vanguard VT](https://investor.vanguard.com/investment-products/etfs/profile/vt)"""
+        fill_assumption = "日線研究，假設小額訂單可在美股官方 Open 成交。"
+        single_name = "此報告只研究 VT；0050 結果見另一份報告。"
+
+    return f"""# {display_name} 每月最佳買點研究
+
+> 結論：若每月必須只買一次，**第 1 個交易日直接買入**是目前最穩健、最可執行的基準。{lead_conclusion}
 
 ---
 
 ## 1. 研究問題
 
-本研究回答一個實務問題：**對定期定額買入 0050 的投資人，每月只買一次時，選哪一個交易日下單最合理？**
+本研究回答一個實務問題：**對定期定額買入 {display_name} 的投資人，每月只買一次時，選哪一個交易日下單最合理？**
 
 具體而言，我們評估三類策略：
 1. **固定日策略**：每月固定在第 N 個交易日買入（N = 1, 5, 10, 15, 最後一日）
@@ -457,11 +594,11 @@ def render_report(results: Mapping[str, Any]) -> str:
 
 ## 2. 核心結論
 
-- 共分析 **{oracle_months}** 個完整月份（2003-07 至 2026-06）。事後最佳日的眾數是第 **{oracle_mode_day}** 個交易日，中位數是第 **{oracle_median_day:.0f}** 日，平均第 **{oracle_mean_day:.1f}** 日。
+- 共分析 **{oracle_months}** 個完整月份（{first_complete_month} 至 {oos_end}）。事後最佳日的眾數是第 **{oracle_mode_day}** 個交易日，中位數是第 **{oracle_median_day:.0f}** 日，平均第 **{oracle_mean_day:.1f}** 日。
 - 精確最低點有 **{_percent(oracle_first_day_rate, 1)}** 出現在第 1 日，**{_percent(oracle_first_5_rate, 1)}** 在前 5 日，**{_percent(oracle_first_10_rate, 1)}** 在前 10 日。
-- 2008-07 至 2026-06 的 **216 個樣本外月份**：第 1 日平均 regret **{_percent(primary_day1_mean_regret)}**；全特徵模型 **{_percent(primary_model_mean_regret)}**。
-- 模型比第 1 日平均差 **{_bps(abs(primary_model_improvement_bps))}**，95% moving-block bootstrap CI 為 **[{_bps(float(model_ci[0]))}, {_bps(float(model_ci[1]))}]**。CI 全數 < 0，等待模型訊號**顯著較差**。
-- 最後 **{holdout_months}** 個月的 sealed holdout（2023-07 至 2026-06）仍一致：第 1 日 **{_percent(holdout_day1_mean_regret)}**，模型 **{_percent(holdout_model_mean_regret)}**；差距 **{_bps(abs(holdout_model_improvement_bps))}**，95% CI **[{_bps(float(holdout_ci[0]))}, {_bps(float(holdout_ci[1]))}]**。
+- {oos_start} 至 {oos_end} 的 **{oos_months} 個樣本外月份**：第 1 日平均 regret **{_percent(primary_day1_mean_regret)}**；{primary_label} **{_percent(primary_model_mean_regret)}**。
+- {model_delta}
+- 最後 **{holdout_months}** 個月的 sealed holdout（2023-07 至 2026-06）仍一致：第 1 日 **{_percent(holdout_day1_mean_regret)}**，模型 **{_percent(holdout_model_mean_regret)}**；差距 **{_bps(abs(holdout_model_improvement_bps))}**，95% CI **[{_bps(holdout_lo)}, {_bps(holdout_hi)}]**。
 - 第 1 日有 **{_percent(primary_day1_within_rate, 1)}** 的月份落在當月最低價 0.5% 內；holdout 期間更高達 **{_percent(holdout_day1_within_rate, 1)}**。
 - 第 1 日相對第 5 日的平均優勢為 **{_bps(day_improvement)}**，95% CI **[{_bps(float(day_ci[0]))}, {_bps(float(day_ci[1]))}]**，跨過 0 -> 前 1-5 日無統計差異。
 
@@ -470,7 +607,7 @@ def render_report(results: Mapping[str, Any]) -> str:
 ### 3.1 Oracle 定義（每月最佳買點）
 
 每月的 oracle 定義為該月 **total-return adjusted 開盤價最低** 的那一天：
-- 使用開盤價而非盤中最低價，因為開盤集合競價可確保成交，盤中低點不一定成交。
+- 使用開盤價而非盤中最低價，因為{fill_note}
 - 同價時取最早日，避免後見偏差。
 - Total-return adjusted price 已將配息再投入與股票分割一併還原，跨期可比。
 
@@ -483,17 +620,7 @@ def render_report(results: Mapping[str, Any]) -> str:
 
 ### 3.3 特徵設計
 
-所有特徵分為四類，共 22 個：
-
-**技術面（11 個）**：1/5/20/60 日報酬、距 20/60 日均線、RSI(14)、布林 Z(20)、距 60 日高點、20 日年化波動率、成交量 Z(20)。
-
-**估值面（2 個）**：NAV 折溢價、TTM 配息殖利率。
-
-**籌碼面（5 個）**：融資 5 日變化率、融券 5 日變化率、法人淨買賣比、法人資料可得標記、基金流量 5 日變化率。
-
-**日曆面（4 個）**：月內交易日序號、月進度（日曆日比例）、星期三角編碼（sin/cos）。
-
-**關鍵防偷看設計**：所有日終特徵（技術、估值、籌碼）向後延遲一個交易日。日曆特徵無需延遲。月進度使用日曆日比例（date.day / days_in_month）。
+{feature_section}
 
 ### 3.4 模型架構
 
@@ -506,19 +633,15 @@ def render_report(results: Mapping[str, Any]) -> str:
 
 ### 3.5 Walk-Forward 設計
 
-- **初始訓練窗口**：前 60 個月（2003-07 至 2008-06）。
+- **初始訓練窗口**：前 60 個完整月份。
 - **擴展方式**：Expanding window，每月新增一個月的完整資料後重訓。
 - **測試集**：下一個月的所有交易日，完全樣本外。
-- **樣本外期間**：2008-07 至 2026-06，共 216 個月。
-- **Sealed holdout**：2023-07 至 2026-06，共 36 個月。
+- **樣本外期間**：{oos_start} 至 {oos_end}，共 {oos_months} 個月。
+- **Sealed holdout**：2023-07 至 2026-06，共 {holdout_months} 個月。
 
 ### 3.6 模型組合
 
-| 模型名稱 | 特徵組合 | 特徵數 |
-|---|---|---:|
-| 技術＋日曆 | technical + calendar | 15 |
-| 技術＋估值＋日曆 | technical + valuation + calendar | 17 |
-| 全特徵 | technical + valuation + chip + calendar | 22 |
+{model_combo}
 
 ### 3.7 統計檢驗
 
@@ -526,25 +649,25 @@ def render_report(results: Mapping[str, Any]) -> str:
 
 ## 4. 事後最佳日特徵分析
 
-276 個月中 oracle 日的前一日特徵統計（僅描述關聯，不代表因果）：
+{oracle_months} 個月中 oracle 日的前一日特徵統計（僅描述關聯，不代表因果）：
 
 {_oracle_feature_table(ranges)}
 
 **解讀**：事後最低點的前一天通常已處於短期弱勢，但嘗試等待這些條件觸發時，模型有超過一半的月份被迫拖到月底強制買入，反而錯過月初的低點。
 
-## 5. 樣本外策略比較（2008-07 至 2026-06，216 個月）
+## 5. 樣本外策略比較（{oos_start} 至 {oos_end}，{oos_months} 個月）
 
 {_strategy_table(metrics)}
 
-**欄位說明**：regret 越低越好。強制率 = 模型整月未觸發、月底被迫買入的比例。期末財富 = 每月投入 10,000 元的 total-return 終值。{random_section}
+**欄位說明**：regret 越低越好。強制率 = 模型整月未觸發、月底被迫買入的比例。期末財富 = 每月投入 10,000 {currency_label}的 total-return 終值。{random_section}
 
 ## 6. 模型診斷
 
 {_model_diagnostics_table(metrics)}
 
-- **Brier Score**：越低越好（完美 = 0，隨機 = 0.25）。三組模型均在 0.19～0.21。
-- **Average Precision**：越高越好。三組模型均在 0.22 左右。
-- **強制買入率超過 50%**：模型的雙重門檻過於嚴格，多數月份被迫月底買入。
+- **Brier Score**：越低越好（完美 = 0，隨機 = 0.25）。
+- **Average Precision**：越高越好。
+- **強制買入率**：雙重門檻若過嚴，多數月份會被迫在截止日買入。
 
 ## 7. 決策規則拆解（不重訓）
 
@@ -558,73 +681,64 @@ def render_report(results: Mapping[str, Any]) -> str:
 
 此區間完全未參與任何開發決策。
 
-| 指標 | 第 {holdout_selected_day} 日 | 全特徵模型 |
+| 指標 | 第 {holdout_selected_day} 日 | {primary_label} |
 |---|---:|---:|
 | 平均 regret | {_percent(holdout_day1_mean_regret)} | {_percent(holdout_model_mean_regret)} |
 | ≤0.5% 月份 | {_percent(holdout_day1_within_rate, 1)} | — |
 | 差距 | — | {_bps(holdout_model_improvement_bps)} |
-| 95% CI | — | [{_bps(float(holdout_ci[0]))}, {_bps(float(holdout_ci[1]))}] |
+| 95% CI | — | [{_bps(holdout_lo)}, {_bps(holdout_hi)}] |
 
-Holdout 差距更大（{_bps(abs(holdout_model_improvement_bps))})，CI 全 < 0。
+{holdout_verdict}
 
 ## 10. 資料與品質
 
 ### 10.1 覆蓋範圍
 
 - 每日 OHLCV：**{rows:,}** 筆，{quality_start} 至 {quality_end}。
-- 完整月份：276 個（2003-07 至 2026-06）。
+- 完整月份：{oracle_months} 個（{first_complete_month} 至 {oos_end}）。
 - 企業行動：**{quality_dividend_events}** 次配息、**{quality_split_events}** 次分割。
 - 欄位數：{quality_columns}。
 
 ### 10.2 交叉驗證
 
-| 來源 | 涵蓋交易日 | 缺值 | 與 FinMind 最大差異 |
-|---|---:|---:|---:|
-| TWSE 官方逐月收盤 | {rows:,} | {official_missing} | {official_difference:.4f} 元 |
-| 元大官方市價 | {rows - issuer_missing:,} | {issuer_missing} | {issuer_difference:.4f} 元 |
+{cross_check}
 
 ### 10.3 估值限制
 
-0050 是 ETF，沒有公司層級 EPS。估值只採 point-in-time NAV 折溢價與 trailing distribution yield。
+{valuation_note}
 
 ### 10.4 資料來源
 
-- [TWSE 個股日收盤價及月平均價](https://www.twse.com.tw/zh/trading/historical/stock-day-avg.html)
-- [元大 0050 歷史 NAV](https://www.yuantaetfs.com/tradeInfo/comparison/0050/NAVhistory)
-- [元大 0050 基本資訊與上市日](https://www.yuantaetfs.com/product/detail/0050/Basic_information)
-- [FinMind API 文件](https://finmind.github.io/quickstart/)
-- [FinMind 美股日線 USStockPrice](https://finmind.github.io/tutor/UnitedStatesMarket/Technical/)
-- [FinMind 臺灣銀行匯率 TaiwanExchangeRate](https://finmind.github.io/tutor/ExchangeRate/)
-- [TWSE 交易制度](https://www.twse.com.tw/en/products/system/trading.html)
+{sources}
 
 ## 11. 圖表
 
-![價格歷史](figures/price_history.png)
+![價格歷史]({figure_relpath}/price_history.png)
 
-![最佳日分布](figures/oracle_day_distribution.png)
+![最佳日分布]({figure_relpath}/oracle_day_distribution.png)
 
-![最佳日特徵](figures/oracle_feature_profile.png)
+![最佳日特徵]({figure_relpath}/oracle_feature_profile.png)
 
-![策略比較](figures/strategy_comparison.png)
+![策略比較]({figure_relpath}/strategy_comparison.png)
 
-![決策規則拆解](figures/policy_ablation.png)
+![決策規則拆解]({figure_relpath}/policy_ablation.png)
 
-![外部領先規則](figures/lead_rules.png)
+![外部領先規則]({figure_relpath}/lead_rules.png)
 
 ## 12. 限制與注意事項
 
-1. **交易假設**：日線研究，假設小額訂單可在開盤集合競價成交。
+1. **交易假設**：{fill_assumption}
 2. **關聯非因果**：特徵與最佳日之間是統計關聯，不是因果關係。
 3. **正向漂移效應**：第 1 日的優勢主要來自股市長期正向漂移。
-4. **單一標的**：只研究 0050 一檔 ETF。
+4. **單一標的**：{single_name}
 5. **Regime change**：所有候選規則都可能因市場環境改變而失效。
 6. **手續費與稅**：期末財富含 0.1425% 手續費，未計證交稅。
 7. **非投資建議**：本報告是量化研究，不構成個人化投資建議。
-8. **月內擇時上限**：oracle 最低點約 73% 不在第 1 日，但那是事後路徑。開盤前可執行訊號（弱勢特徵、隔夜美股、匯率）未能把這段差距變成樣本外 regret 改善；真過濾反而因截止日買入而更差。繼續掃月內門檻會變成 p-hacking，不是新資訊。
+8. **月內擇時上限**：oracle 最低點多數不在第 1 日，但那是事後路徑。開盤前可執行訊號未能把這段差距變成樣本外 regret 改善；真過濾反而因截止日買入而更差。繼續掃月內門檻會變成 p-hacking，不是新資訊。
 
 ## 13. 尚未檢驗的方向
 
-月內選日已測完且未贏第 1 日，見第 7、8 節。剩餘項目改的是「買多少」，不是「哪一天」。
+月內選日協議與 0050 對齊。剩餘若做國發會景氣燈，改的是「買多少」，不是「哪一天」。
 
 ### 13.1 月度金額（不是月內擇時）
 
@@ -653,7 +767,7 @@ Holdout 差距更大（{_bps(abs(holdout_model_improvement_bps))})，CI 全 < 0�
 | Reservation price | 模型算出的最高可接受買價 |
 | 強制買入 | 搜尋窗口內未觸發，於截止日強制執行買入 |
 | 截止日 | 未觸發時的買入日；預設月底，拆解與領先規則另測第 5 交易日 |
-| TSM lead | 臺灣開盤前已知的台積電 ADR 前一美股交易日還原報酬 |
+| TSM lead | 前一美股交易日台積電 ADR 還原報酬（0050 為跨市場隔夜；VT 為同一市場 T-1） |
 | SOX lead | 費城半導體指數前一美股交易日還原報酬 |
 | USD/TWD 升值 | 美元兌新臺幣即期中間價上升，即臺幣貶值；單日與三日暫緩都是這個方向 |
 """
@@ -672,12 +786,20 @@ def _configure_style() -> None:
     )
 
 
-def _save_price_history(daily: pd.DataFrame, path: Path) -> None:
+def _save_price_history(
+    daily: pd.DataFrame,
+    path: Path,
+    *,
+    price_column: str = "split_adjusted_close",
+    title: str = "0050 分割還原收盤價（對數軸）",
+    ylabel: str = "新臺幣／目前受益權單位",
+) -> None:
+    column = price_column if price_column in daily.columns else "adjusted_close"
     fig, axis = plt.subplots(figsize=(11, 4.8))
-    axis.plot(daily["date"], daily["split_adjusted_close"], color="#174A7E", linewidth=1.2)
+    axis.plot(daily["date"], daily[column], color="#174A7E", linewidth=1.2)
     axis.set_yscale("log")
-    axis.set_title("0050 分割還原收盤價（對數軸）")
-    axis.set_ylabel("新臺幣／目前受益權單位")
+    axis.set_title(title)
+    axis.set_ylabel(ylabel)
     axis.grid(axis="y", alpha=0.2)
     fig.tight_layout()
     fig.savefig(path, bbox_inches="tight")
@@ -720,12 +842,31 @@ def _save_feature_profile(profile: pd.DataFrame, path: Path) -> None:
     plt.close(fig)
 
 
-def _save_strategy_comparison(metrics: Mapping[str, Mapping[str, Any]], path: Path) -> None:
-    order = ["fixed_day_1", "fixed_day_5", "fixed_day_10", "fixed_day_15", "rsi30_or_last", "all"]
-    labels = ["第1日", "第5日", "第10日", "第15日", "RSI規則", "全特徵模型"]
-    values = [float(metrics[name]["mean_regret"]) * 100 for name in order]
+def _save_strategy_comparison(
+    metrics: Mapping[str, Mapping[str, Any]],
+    path: Path,
+    *,
+    primary_model: str = "all",
+    primary_label: str = "全特徵模型",
+) -> None:
+    order = [
+        "fixed_day_1",
+        "fixed_day_5",
+        "fixed_day_10",
+        "fixed_day_15",
+        "rsi30_or_last",
+        primary_model,
+    ]
+    labels = ["第1日", "第5日", "第10日", "第15日", "RSI規則", primary_label]
+    present = [name for name in order if name in metrics]
+    axis_labels = [labels[order.index(name)] for name in present]
+    values = [float(metrics[name]["mean_regret"]) * 100 for name in present]
     fig, axis = plt.subplots(figsize=(9, 4.8))
-    bars = axis.bar(labels, values, color=["#174A7E"] + ["#8BA9C4"] * 4 + ["#C65D3B"])
+    bars = axis.bar(
+        axis_labels,
+        values,
+        color=["#174A7E"] + ["#8BA9C4"] * (len(values) - 2) + ["#C65D3B"],
+    )
     axis.bar_label(bars, fmt="%.2f%%", padding=3)
     axis.set_title("樣本外平均月度 regret（越低越好）")
     axis.set_ylabel("regret")
@@ -772,15 +913,31 @@ def generate_figures(
     policy_ablation: Mapping[str, Mapping[str, Any]] | None = None,
     day1_mean_regret: float | None = None,
     lead_rules: Mapping[str, Mapping[str, Any]] | None = None,
+    primary_model: str = "all",
+    primary_label: str = "全特徵模型",
+    price_column: str = "split_adjusted_close",
+    price_title: str = "0050 分割還原收盤價（對數軸）",
+    price_ylabel: str = "新臺幣／目前受益權單位",
 ) -> None:
     """產生報告使用的可重建圖表。"""
 
     _configure_style()
     output_dir.mkdir(parents=True, exist_ok=True)
-    _save_price_history(daily, output_dir / "price_history.png")
+    _save_price_history(
+        daily,
+        output_dir / "price_history.png",
+        price_column=price_column,
+        title=price_title,
+        ylabel=price_ylabel,
+    )
     _save_oracle_distribution(oracle, output_dir / "oracle_day_distribution.png")
     _save_feature_profile(profile, output_dir / "oracle_feature_profile.png")
-    _save_strategy_comparison(metrics, output_dir / "strategy_comparison.png")
+    _save_strategy_comparison(
+        metrics,
+        output_dir / "strategy_comparison.png",
+        primary_model=primary_model,
+        primary_label=primary_label,
+    )
     if policy_ablation and day1_mean_regret is not None:
         _save_ablation_comparison(
             policy_ablation, day1_mean_regret, output_dir / "policy_ablation.png"

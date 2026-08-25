@@ -1,0 +1,572 @@
+{
+  "data_quality": {
+    "rows": 4568,
+    "start": "2008-06-26",
+    "end": "2026-08-24",
+    "columns": 36,
+    "official_max_difference": 0.0,
+    "official_missing": 0,
+    "official_source": "FinMind USStockPrice",
+    "issuer_max_difference": 0.0,
+    "issuer_market_price_missing": 0,
+    "nav_missing": 0,
+    "split_events": 0,
+    "dividend_events": 60
+  },
+  "oracle_distribution": {
+    "months": 217,
+    "mean_day": 8.695852534562212,
+    "median_day": 7.0,
+    "mode_day": 1,
+    "first_day_rate": 0.1889400921658986,
+    "first_5_rate": 0.43317972350230416,
+    "first_10_rate": 0.5990783410138248
+  },
+  "oracle_ranges": {
+    "open_gap_vs_action_ref": {
+      "q25": -0.00816564596092162,
+      "median": -0.0015754233950373564,
+      "q75": 0.00281320330082524,
+      "mean": -0.0032856362482069942,
+      "n": 217
+    },
+    "ret_1": {
+      "q25": -0.014690809702767371,
+      "median": -0.006353761016601789,
+      "q75": 0.0014376668720474939,
+      "mean": -0.00829947211454538,
+      "n": 217
+    },
+    "ret_5": {
+      "q25": -0.03306078919303235,
+      "median": -0.01588562351072309,
+      "q75": -0.0037425149700598404,
+      "mean": -0.02015584653734244,
+      "n": 217
+    },
+    "ret_20": {
+      "q25": -0.04257681510603464,
+      "median": -0.011630591244311705,
+      "q75": 0.00848851767753167,
+      "mean": -0.020551753598566678,
+      "n": 216
+    },
+    "ma_gap_20": {
+      "q25": -0.0341007730674453,
+      "median": -0.01572550595616856,
+      "q75": 0.0010169630070665514,
+      "mean": -0.020048451994164433,
+      "n": 216
+    },
+    "ma_gap_60": {
+      "q25": -0.03407218009904331,
+      "median": -0.0027623418689935453,
+      "q75": 0.019114521422564423,
+      "mean": -0.015699985299231077,
+      "n": 214
+    },
+    "rsi_14": {
+      "q25": 30.31378890138737,
+      "median": 40.70558182885151,
+      "q75": 54.23177083333341,
+      "mean": 42.68023743639223,
+      "n": 216
+    },
+    "bollinger_z_20": {
+      "q25": -2.0963309502377885,
+      "median": -1.2400054642557738,
+      "q75": 0.09415995676335062,
+      "mean": -0.9762264817519072,
+      "n": 216
+    },
+    "drawdown_60": {
+      "q25": -0.0737383137788643,
+      "median": -0.04033838292159242,
+      "q75": -0.01614690132758409,
+      "mean": -0.06087783848190175,
+      "n": 214
+    },
+    "volume_z_20": {
+      "q25": -0.4513053827836326,
+      "median": 0.12091265983653436,
+      "q75": 1.1080360196648291,
+      "mean": 0.47427053323680635,
+      "n": 216
+    }
+  },
+  "primary": {
+    "day1_mean_regret": 0.027509966463748925,
+    "day1_within_rate": 0.27388535031847133,
+    "model_mean_regret": 0.031226389148203394,
+    "model_improvement_bps": -37.1642268445447,
+    "model_ci95_bps": [
+      -95.93314410952541,
+      22.429835079738375
+    ]
+  },
+  "holdout": {
+    "months": 36,
+    "selected_day": 1,
+    "day1_mean_regret": 0.022351897580898727,
+    "day1_within_rate": 0.4166666666666667,
+    "model_mean_regret": 0.03183565982654885,
+    "model_improvement_bps": -94.83762245650117,
+    "model_ci95_bps": [
+      -178.1654245968921,
+      -15.40616249510787
+    ]
+  },
+  "day1_vs_day5": {
+    "improvement_bps": 15.33523919987726,
+    "ci95_bps": [
+      -16.384290175934616,
+      53.581701167861986
+    ]
+  },
+  "strategy_metrics": {
+    "technical_calendar": {
+      "months": 157,
+      "mean_regret": 0.031226389148203394,
+      "median_regret": 0.0235757676402184,
+      "p75_regret": 0.0452581401270846,
+      "p90_regret": 0.06912210896707922,
+      "p95_regret": 0.09051120801811632,
+      "within_0_5pct_rate": 0.20382165605095542,
+      "within_1pct_rate": 0.3057324840764331,
+      "mean_trading_day": 13.910828025477707,
+      "forced_rate": 0.46496815286624205,
+      "terminal_wealth_proxy": 3734954.8974929447,
+      "brier": 0.19818560141847177,
+      "average_precision": 0.24523698841274327
+    },
+    "fixed_day_1": {
+      "months": 157,
+      "mean_regret": 0.027509966463748925,
+      "median_regret": 0.015447901149276078,
+      "p75_regret": 0.03493401619085135,
+      "p90_regret": 0.0682274162654792,
+      "p95_regret": 0.09227491333460404,
+      "within_0_5pct_rate": 0.27388535031847133,
+      "within_1pct_rate": 0.3821656050955414,
+      "mean_trading_day": 1.0,
+      "terminal_wealth_proxy": 3749729.962062414
+    },
+    "fixed_day_5": {
+      "months": 157,
+      "mean_regret": 0.02904349038373665,
+      "median_regret": 0.022210592059933143,
+      "p75_regret": 0.03561985605768503,
+      "p90_regret": 0.05860859113829859,
+      "p95_regret": 0.08062019507834912,
+      "within_0_5pct_rate": 0.14012738853503184,
+      "within_1pct_rate": 0.2229299363057325,
+      "mean_trading_day": 5.0,
+      "terminal_wealth_proxy": 3742845.3725363584
+    },
+    "fixed_day_10": {
+      "months": 157,
+      "mean_regret": 0.03125155551358434,
+      "median_regret": 0.025795028967284805,
+      "p75_regret": 0.042379407234110156,
+      "p90_regret": 0.0578283634144771,
+      "p95_regret": 0.07881125718774358,
+      "within_0_5pct_rate": 0.05732484076433121,
+      "within_1pct_rate": 0.1592356687898089,
+      "mean_trading_day": 10.0,
+      "terminal_wealth_proxy": 3738714.7360926047
+    },
+    "fixed_day_15": {
+      "months": 157,
+      "mean_regret": 0.032761240529411255,
+      "median_regret": 0.028185959932472304,
+      "p75_regret": 0.046154907754994534,
+      "p90_regret": 0.060304101422769436,
+      "p95_regret": 0.0746349577381263,
+      "within_0_5pct_rate": 0.050955414012738856,
+      "within_1pct_rate": 0.12738853503184713,
+      "mean_trading_day": 15.0,
+      "terminal_wealth_proxy": 3728279.252415419
+    },
+    "last_day": {
+      "months": 157,
+      "mean_regret": 0.03538710880970351,
+      "median_regret": 0.028802105745616036,
+      "p75_regret": 0.047416057262040345,
+      "p90_regret": 0.07119898623149003,
+      "p95_regret": 0.08990401282303749,
+      "within_0_5pct_rate": 0.12101910828025478,
+      "within_1pct_rate": 0.1592356687898089,
+      "mean_trading_day": 20.961783439490446,
+      "terminal_wealth_proxy": 3721544.9115421087
+    },
+    "rsi30_or_last": {
+      "months": 157,
+      "mean_regret": 0.031088882133231147,
+      "median_regret": 0.02376010354342184,
+      "p75_regret": 0.04107454038639613,
+      "p90_regret": 0.06247175972130004,
+      "p95_regret": 0.08348177537978141,
+      "within_0_5pct_rate": 0.18471337579617833,
+      "within_1pct_rate": 0.24203821656050956,
+      "mean_trading_day": 16.43949044585987,
+      "terminal_wealth_proxy": 3738201.7742603966
+    }
+  },
+  "policy_ablation": {
+    "prob_and_res": {
+      "months": 157,
+      "mean_regret": 0.031226389148203394,
+      "median_regret": 0.0235757676402184,
+      "p75_regret": 0.0452581401270846,
+      "p90_regret": 0.06912210896707922,
+      "p95_regret": 0.09051120801811632,
+      "within_0_5pct_rate": 0.20382165605095542,
+      "within_1pct_rate": 0.3057324840764331,
+      "mean_trading_day": 13.910828025477707,
+      "forced_rate": 0.46496815286624205,
+      "terminal_wealth_proxy": 3734954.8974929447,
+      "improvement_bps": -37.1642268445447,
+      "ci95_bps": [
+        -95.93314410952541,
+        22.429835079738375
+      ],
+      "holdout_mean_regret": 0.03183565982654885,
+      "holdout_forced_rate": 0.5,
+      "holdout_mean_trading_day": 13.305555555555555,
+      "holdout_improvement_bps": -94.83762245650117,
+      "holdout_ci95_bps": [
+        -178.1654245968921,
+        -15.40616249510787
+      ]
+    },
+    "prob_only": {
+      "months": 157,
+      "mean_regret": 0.027012740991851573,
+      "median_regret": 0.015865053159831,
+      "p75_regret": 0.0349340161908513,
+      "p90_regret": 0.06938590971135901,
+      "p95_regret": 0.089462923685155,
+      "within_0_5pct_rate": 0.2929936305732484,
+      "within_1pct_rate": 0.39490445859872614,
+      "mean_trading_day": 2.7261146496815285,
+      "forced_rate": 0.03821656050955414,
+      "terminal_wealth_proxy": 3751736.8687374205,
+      "improvement_bps": 4.972254718973471,
+      "ci95_bps": [
+        -18.59449026478428,
+        27.427042138530208
+      ],
+      "holdout_mean_regret": 0.02389943010428466,
+      "holdout_forced_rate": 0.08333333333333333,
+      "holdout_mean_trading_day": 3.5555555555555554,
+      "holdout_improvement_bps": -15.475325233859278,
+      "holdout_ci95_bps": [
+        -85.2685005272455,
+        32.555495106294785
+      ]
+    },
+    "res_only": {
+      "months": 157,
+      "mean_regret": 0.03235164747171148,
+      "median_regret": 0.0223058230539534,
+      "p75_regret": 0.0431738316072174,
+      "p90_regret": 0.07418733686557054,
+      "p95_regret": 0.10492454562351666,
+      "within_0_5pct_rate": 0.15286624203821655,
+      "within_1pct_rate": 0.2802547770700637,
+      "mean_trading_day": 8.821656050955413,
+      "forced_rate": 0.006369426751592357,
+      "terminal_wealth_proxy": 3730736.6841496257,
+      "improvement_bps": -48.41681007962562,
+      "ci95_bps": [
+        -94.70305388796638,
+        -8.185795046229126
+      ],
+      "holdout_mean_regret": 0.027582627008072506,
+      "holdout_forced_rate": 0.0,
+      "holdout_mean_trading_day": 7.861111111111111,
+      "holdout_improvement_bps": -52.30729427173778,
+      "holdout_ci95_bps": [
+        -111.16952238187145,
+        5.016177785997161
+      ]
+    },
+    "prob_and_res_deadline5": {
+      "months": 157,
+      "mean_regret": 0.029055291720374004,
+      "median_regret": 0.0208022452585607,
+      "p75_regret": 0.0361113276264877,
+      "p90_regret": 0.06456118572680351,
+      "p95_regret": 0.0914690612974783,
+      "within_0_5pct_rate": 0.18471337579617833,
+      "within_1pct_rate": 0.28662420382165604,
+      "mean_trading_day": 4.464968152866242,
+      "forced_rate": 0.7643312101910829,
+      "terminal_wealth_proxy": 3742905.489975035,
+      "improvement_bps": -15.453252566250816,
+      "ci95_bps": [
+        -50.82561091218147,
+        12.469663974565888
+      ],
+      "holdout_mean_regret": 0.023187871055641896,
+      "holdout_forced_rate": 0.6388888888888888,
+      "holdout_mean_trading_day": 4.027777777777778,
+      "holdout_improvement_bps": -8.359734747431673,
+      "holdout_ci95_bps": [
+        -49.86557269606097,
+        29.57544181554621
+      ]
+    },
+    "prob_only_deadline5": {
+      "months": 157,
+      "mean_regret": 0.026480245103691798,
+      "median_regret": 0.0153100354846209,
+      "p75_regret": 0.0334829503438722,
+      "p90_regret": 0.06797177475275613,
+      "p95_regret": 0.09053987142744051,
+      "within_0_5pct_rate": 0.3057324840764331,
+      "within_1pct_rate": 0.40764331210191085,
+      "mean_trading_day": 1.7707006369426752,
+      "forced_rate": 0.10828025477707007,
+      "terminal_wealth_proxy": 3753057.1977507332,
+      "improvement_bps": 10.297213600571236,
+      "ci95_bps": [
+        -3.648914123098005,
+        27.54267285797241
+      ],
+      "holdout_mean_regret": 0.021758756968225865,
+      "holdout_forced_rate": 0.1111111111111111,
+      "holdout_mean_trading_day": 2.0,
+      "holdout_improvement_bps": 5.931406126728667,
+      "holdout_ci95_bps": [
+        -17.136547120946418,
+        28.153873062113014
+      ]
+    },
+    "res_only_deadline5": {
+      "months": 157,
+      "mean_regret": 0.029641497751531857,
+      "median_regret": 0.0192010873203094,
+      "p75_regret": 0.0372473915485305,
+      "p90_regret": 0.06868545245352842,
+      "p95_regret": 0.0914690612974783,
+      "within_0_5pct_rate": 0.15286624203821655,
+      "within_1pct_rate": 0.2802547770700637,
+      "mean_trading_day": 4.235668789808917,
+      "forced_rate": 0.6178343949044586,
+      "terminal_wealth_proxy": 3741566.681585649,
+      "improvement_bps": -21.31531287782933,
+      "ci95_bps": [
+        -58.61443977525349,
+        6.21189314466377
+      ],
+      "holdout_mean_regret": 0.02376847815709756,
+      "holdout_forced_rate": 0.5277777777777778,
+      "holdout_mean_trading_day": 3.7777777777777777,
+      "holdout_improvement_bps": -14.165805761988308,
+      "holdout_ci95_bps": [
+        -55.124601909073924,
+        22.301856599159404
+      ]
+    }
+  },
+  "meta": {
+    "instrument": "VT",
+    "display_name": "VT（Vanguard Total World Stock ETF）",
+    "first_complete_month": "2008-07",
+    "oos_start": "2013-07",
+    "oos_end": "2026-07",
+    "oos_months": 157,
+    "primary_model": "technical_calendar",
+    "primary_label": "技術＋日曆模型",
+    "figure_relpath": "figures/vt",
+    "currency_label": "美元",
+    "fill_note": "成交價採美股常規交易時段官方 Open，不是臺灣開盤集合競價；盤中低點不視為可保證成交。",
+    "lead_market_note": "TSM／SOX 與 VT 同屬美股交易時段，as-of 仍為目標日 T-1，用的是前一美股交易日、不是跨市場隔夜資訊；當日美股收盤不可用於當日開盤決策。USD/TWD 同樣只用 T-1。第 5 日截止沿用 0050 已公布的 oracle 前 5 日占比，不依 VT 重估。",
+    "has_taiwan_crosscheck": false,
+    "report_path": "reports/VT_buy_point_analysis.md",
+    "deadline_first_5_rate": 0.482
+  },
+  "random_strategy": {
+    "mean_regret": 0.031456346889383646,
+    "ci95": [
+      0.028378768884620587,
+      0.034577742679516084
+    ]
+  },
+  "lead_rules": {
+    "tsm_neg_or_day5": {
+      "months": 157,
+      "mean_regret": 0.02776237856261874,
+      "median_regret": 0.017078753569086613,
+      "p75_regret": 0.03676270487566757,
+      "p90_regret": 0.0636968884450596,
+      "p95_regret": 0.09227491333460404,
+      "within_0_5pct_rate": 0.24203821656050956,
+      "within_1pct_rate": 0.3375796178343949,
+      "mean_trading_day": 2.0445859872611467,
+      "forced_rate": 0.05732484076433121,
+      "terminal_wealth_proxy": 3748744.3580195317,
+      "improvement_bps": -2.5241209886982086,
+      "ci95_bps": [
+        -21.981346819535396,
+        15.08309654282937
+      ],
+      "holdout_mean_regret": 0.02117282320702961,
+      "holdout_forced_rate": 0.05555555555555555,
+      "holdout_mean_trading_day": 2.0277777777777777,
+      "holdout_improvement_bps": 11.79074373869117,
+      "holdout_ci95_bps": [
+        -29.24916391447317,
+        57.61914510649018
+      ],
+      "signal_rate": 0.4709814646004254
+    },
+    "sox_neg_or_day5": {
+      "months": 157,
+      "mean_regret": 0.02687609662029364,
+      "median_regret": 0.014854542436799845,
+      "p75_regret": 0.03493401619085135,
+      "p90_regret": 0.06478298967837104,
+      "p95_regret": 0.09053987142744052,
+      "within_0_5pct_rate": 0.2356687898089172,
+      "within_1pct_rate": 0.3503184713375796,
+      "mean_trading_day": 2.089171974522293,
+      "forced_rate": 0.044585987261146494,
+      "terminal_wealth_proxy": 3751995.9414021033,
+      "improvement_bps": 6.338698434552797,
+      "ci95_bps": [
+        -8.684193243071435,
+        21.26762486233864
+      ],
+      "holdout_mean_regret": 0.020960578241790435,
+      "holdout_forced_rate": 0.05555555555555555,
+      "holdout_mean_trading_day": 2.2777777777777777,
+      "holdout_improvement_bps": 13.91319339108293,
+      "holdout_ci95_bps": [
+        -18.647608472627173,
+        48.51534523387583
+      ],
+      "signal_rate": 0.4463688848374354
+    },
+    "fx_pause_or_day5": {
+      "months": 157,
+      "mean_regret": 0.02756421069622548,
+      "median_regret": 0.015434843334124926,
+      "p75_regret": 0.03493401619085135,
+      "p90_regret": 0.0682274162654792,
+      "p95_regret": 0.09227491333460404,
+      "within_0_5pct_rate": 0.267515923566879,
+      "within_1pct_rate": 0.3821656050955414,
+      "mean_trading_day": 1.1401273885350318,
+      "forced_rate": 0.012738853503184714,
+      "terminal_wealth_proxy": 3749847.1708593452,
+      "improvement_bps": -0.5424423247656118,
+      "ci95_bps": [
+        -5.5554412968164755,
+        3.7501123362317625
+      ],
+      "holdout_mean_regret": 0.02307552795378805,
+      "holdout_forced_rate": 0.0,
+      "holdout_mean_trading_day": 1.25,
+      "holdout_improvement_bps": -7.236303728893242,
+      "holdout_ci95_bps": [
+        -21.470461815945583,
+        5.532614762324202
+      ],
+      "signal_rate": 0.8669097538742023
+    },
+    "tsm_dump1pct_or_day5": {
+      "months": 157,
+      "mean_regret": 0.027569131529157253,
+      "median_regret": 0.01821360564275909,
+      "p75_regret": 0.035140795136791914,
+      "p90_regret": 0.06188576724267506,
+      "p95_regret": 0.08946292368515504,
+      "within_0_5pct_rate": 0.2356687898089172,
+      "within_1pct_rate": 0.3503184713375796,
+      "mean_trading_day": 3.0191082802547773,
+      "forced_rate": 0.25477707006369427,
+      "terminal_wealth_proxy": 3748616.310088458,
+      "improvement_bps": -0.5916506540833135,
+      "ci95_bps": [
+        -23.656414185711604,
+        21.665617641204022
+      ],
+      "holdout_mean_regret": 0.020979610480859882,
+      "holdout_forced_rate": 0.1388888888888889,
+      "holdout_mean_trading_day": 2.638888888888889,
+      "holdout_improvement_bps": 13.722871000388443,
+      "holdout_ci95_bps": [
+        -29.147859769370378,
+        62.249842840343725
+      ],
+      "signal_rate": 0.24035247645092678
+    },
+    "tsm_buy_unless_adverse": {
+      "months": 157,
+      "mean_regret": 0.027728787836009947,
+      "median_regret": 0.015310035484620954,
+      "p75_regret": 0.0352094977685502,
+      "p90_regret": 0.06914104588386222,
+      "p95_regret": 0.09465079163396432,
+      "within_0_5pct_rate": 0.21019108280254778,
+      "within_1pct_rate": 0.3503184713375796,
+      "mean_trading_day": 1.872611464968153,
+      "forced_rate": 0.012738853503184714,
+      "terminal_wealth_proxy": 3749216.143934164,
+      "improvement_bps": -2.188213722610277,
+      "ci95_bps": [
+        -14.55852104436004,
+        9.118094099670394
+      ],
+      "holdout_mean_regret": 0.02125947462589272,
+      "holdout_forced_rate": 0.0,
+      "holdout_mean_trading_day": 1.9722222222222223,
+      "holdout_improvement_bps": 10.924229550060065,
+      "holdout_ci95_bps": [
+        -13.578318664640006,
+        33.436550935400064
+      ],
+      "signal_rate": 0.5290185353995746
+    },
+    "fx_single_pause_or_day5": {
+      "months": 157,
+      "mean_regret": 0.027349524544826434,
+      "median_regret": 0.015434843334124926,
+      "p75_regret": 0.03348653077218522,
+      "p90_regret": 0.07111131906390783,
+      "p95_regret": 0.09841367992119113,
+      "within_0_5pct_rate": 0.2611464968152866,
+      "within_1pct_rate": 0.36942675159235666,
+      "mean_trading_day": 1.8980891719745223,
+      "forced_rate": 0.044585987261146494,
+      "terminal_wealth_proxy": 3749636.2365027536,
+      "improvement_bps": 1.6044191892248785,
+      "ci95_bps": [
+        -16.75330738515642,
+        19.58775723302702
+      ],
+      "holdout_mean_regret": 0.021876784178375772,
+      "holdout_forced_rate": 0.05555555555555555,
+      "holdout_mean_trading_day": 2.1666666666666665,
+      "holdout_improvement_bps": 4.751134025229556,
+      "holdout_ci95_bps": [
+        -21.96371046622133,
+        27.367617584250066
+      ],
+      "signal_rate": 0.5126101488909146
+    }
+  },
+  "lead_coverage": {
+    "tsm_available_rate": 1.0,
+    "sox_available_rate": 1.0,
+    "fx_available_rate": 1.0,
+    "tsm_dump_rate": 0.4709814646004254,
+    "sox_dump_rate": 0.4463688848374354,
+    "fx_pause_rate": 0.13309024612579762,
+    "tsm_dump_1pct_rate": 0.24035247645092678,
+    "tsm_adverse_rate": 0.4709814646004254,
+    "fx_single_pause_rate": 0.4873898511090854
+  }
+}

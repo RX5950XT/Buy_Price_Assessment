@@ -16,6 +16,7 @@
 - **外部領先規則（不掃參）**：6 條預先指定規則樣本外 CI 均未贏第 1 日（3.20%）；holdout 點估計全為負。TSM ≥1% 大跌屬過濾（3.40%、強制率 26.4%、平均第 3.0 日，−19 bps）。第 1 日除非隔夜下跌、臺幣單日貶值暫緩仍屬延後買入（皆 3.23%、強制率 2.3%、平均第 1.8 日）。美股與匯率對齊只用臺灣日 T-1 已收盤資料；USD/TWD 上升 = 臺幣貶值。
 - **月內擇時判斷**：在「每月必須買一次、開盤成交、只用開盤前已知資訊」的約束下，模型、六組決策規則與六條領先規則都沒有樣本外證據優於第 1 日。理論上約 73% 月份最低點不在第 1 日，但可執行訊號抓不到，等待卻付正漂移成本。剩餘未測是月度扣款金額（景氣燈），不是再掃月內門檻。
 - **最佳日特徵畫像**：事後最低點的前一日特徵中位數表現為：5 日報酬 -1.59%、低於 20 日均線 1.42%、RSI(14) 41.1、距 60 日高點回檔 5.20%。但嘗試在樣本外「等待」這些特徵，代價是面臨高額的空倉機會成本。當日開盤相對已調整權息／分割的前收中位數為 -0.13%（四分位數區間為 -0.74% 至 +0.09%），跨 23 年不應使用單一固定新臺幣價格作為觸發點。
+- **VT 複製實驗（相同協議）**：美股上市的全球股票 ETF VT，用同一套月內買一次、開盤成交、walk-forward 60 月、holdout 2023-07～2026-06、6 組政策、6 條領先規則、T-1 as-of。完整月份 217（2008-07～2026-07），樣本外 157 個月（2013-07～2026-07）。第 1 日 regret **2.75%**，技術＋日曆模型 **3.12%**（−37 bps，CI [−96, 22] 跨 0）。holdout 第 1 日 **2.24%**、模型 **3.18%**（−95 bps，CI 全 < 0）。6 組政策與 6 條領先規則樣本外 CI 均未全數 > 0；SOX 下跌規則點估計 +6 bps、僅機率規則 +5 bps，CI 都跨 0，不得當成贏。結論與 0050 相同：月內擇時沒有證據贏過第 1 日。報告見 [`reports/VT_buy_point_analysis.md`](reports/VT_buy_point_analysis.md)。
 
 完整數據、限制與圖表見 [`reports/0050_buy_point_analysis.md`](reports/0050_buy_point_analysis.md)。
 
@@ -86,6 +87,10 @@ uv run buy-price-assessment fetch --validate-all-twse-months
 # 僅進行回測分析與報告渲染（會驗證 cache 指紋，特徵或設定改變時快取會失效）
 uv run buy-price-assessment analyze
 uv run buy-price-assessment analyze --force-models
+
+# VT 複製實驗（不覆寫 0050 產物；領先序列缺檔會失敗）
+uv run buy-price-assessment all --symbol VT
+uv run buy-price-assessment analyze --symbol VT
 ```
 
 ---
@@ -111,6 +116,10 @@ uv run buy-price-assessment analyze --force-models
 | `data/raw/sox_us.csv` | 費城半導體指數還原收盤（FinMind `^SOX`） |
 | `data/raw/usd_twd.csv` | 美元／新臺幣即期中間價（FinMind TaiwanExchangeRate） |
 | `reports/figures/lead_rules.png` | 外部領先規則（原三條＋失敗機制修正版）相對第 1 日的樣本外平均 regret |
+| `data/processed/VT_daily.csv` | VT 每日原始 OHLC、vendor Adj_Close 與 total-return 還原開盤價 |
+| `reports/VT_buy_point_analysis.md` | VT 複製實驗報告 |
+| `reports/vt_research_results.json` | VT 結構化結果（不覆寫 0050 的 `research_results.json`） |
+| `reports/figures/vt/` | VT 圖表 |
 
 `data/raw/` 的 TWSE 月檔、TSM／SOX／USD/TWD 可由 `fetch` 重建，不進 git。分析領先規則前需先抓齊這三份外部序列。
 

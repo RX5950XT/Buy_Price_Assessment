@@ -42,14 +42,14 @@ def test_cli_fetch_and_analyze_boundaries(monkeypatch, tmp_path) -> None:  # typ
 
 
 def test_cli_main_returns_structured_success_and_error(monkeypatch, capsys) -> None:  # type: ignore[no-untyped-def]
-    monkeypatch.setattr(cli, "_fetch", lambda _: {"rows": 1})
-    monkeypatch.setattr(cli, "_analyze", lambda _: {"months": 1})
+    monkeypatch.setattr(cli, "_fetch", lambda *_, **__: {"rows": 1})
+    monkeypatch.setattr(cli, "_analyze", lambda *_, **__: {"months": 1})
     assert cli.main(["all"]) == 0
     success = json.loads(capsys.readouterr().out)
     assert success["success"] is True
     assert success["data"]["fetch"]["rows"] == 1
 
-    def fail(_: bool) -> dict[str, object]:
+    def fail(*_: object, **__: object) -> dict[str, object]:
         raise DataSourceError("暫時失敗")
 
     monkeypatch.setattr(cli, "_fetch", fail)

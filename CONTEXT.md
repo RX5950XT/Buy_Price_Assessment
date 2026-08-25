@@ -2,26 +2,24 @@
 
 ## 目標
 
-建立可重跑的 0050 研究管線，取得自上市以來每日市場資料，分析每月只買一次時的事後最佳買點特徵，並用無前視偏誤的 walk-forward 驗證可執行規則。
+建立可重跑的 0050 研究管線，取得自上市以來每日市場資料，分析每月只買一次時的事後最佳買點特徵，並用無前視偏誤的 walk-forward 驗證可執行規則。VT 用同一協議複製，檢驗結論是否為單一標的特例。
 
 ## 目前狀態 (2026-08-25 更新)
 
-- 第一版管線、決策規則拆解、外部領先規則與失敗機制修正版均已完成；文件與報告已對齊「未贏第 1 日」結論。
-- 領先資料：`data/raw/tsm_us.csv`、`sox_us.csv`（2003-06-02～2026-07-10）、`usd_twd.csv`（2006-01-03～2026-07-10）。樣本外可對齊 100%。`data/raw/` 不進 git。
-- 美股／匯率 as-of：目標日 T 只用來源日 `<= T-1` 的最後一筆。USD/TWD 上升 = 臺幣貶值。
-- `select_first_true_or_deadline` 只在截止窗口內搜尋；第 6 日以後的訊號不算觸發。
+- 0050 管線完成；VT 複製實驗完成，結論相同：月內擇時沒有證據贏第 1 日。
+- CLI：`uv run buy-price-assessment analyze --symbol VT`。產物在 `data/processed/vt/`、`reports/VT_buy_point_analysis.md`，不覆寫 0050。
+- 領先資料缺檔必須失敗。VT fetch 會一併抓 TSM／SOX／USD/TWD。`data/raw/` 不進 git。
+- 美股／匯率 as-of：目標日 T 只用來源日 `<= T-1`。VT 的 TSM／SOX 是同一市場前一交易日，不是跨市場隔夜。
+- 第 5 日截止沿用 0050 已公布的 48.2%，不依 VT 的 43.3% 重估。
 - `0050_daily.csv`：5,665 日，2003-06-30～2026-07-09；完整月份 276；樣本外 216；holdout 36。
+- `VT_daily.csv`：4,568 日，2008-06-26～2026-08-24；完整月份 217（2008-07～2026-07）；樣本外 157（2013-07～2026-07）；holdout 36。
 
 ## 研究結論
 
-- **可執行基準仍是第 1 交易日**，樣本外 mean regret 3.20%。
-- 現行雙門檻模型 4.36%，差 116 bps，CI [−196, −39]。
-- 領先規則 6 條（原三條＋修正三條）樣本外 CI 均未全數 > 0；holdout 點估計全為負。沒有證據優於第 1 日，未改門檻重跑。
-- 在現有約束下，月內擇時不太可能穩定贏第 1 日：可執行訊號抓不到事後最低點，等待卻付正漂移成本。
-- 過密修正：TSM ≥1% 大跌屬過濾（強制率 26.4%、平均第 3.0 日、3.40%，−19 bps，CI 跨 0）。
-- 第 1 日除非隔夜下跌：強制率 2.3%、平均第 1.8 日，屬延後買入（3.23%，−3 bps）。
-- 過稀修正：臺幣單日貶值暫緩同樣屬延後（強制率 2.3%、平均第 1.8 日，3.23%，−3 bps）。
-- 三日臺幣連貶仍幾乎是第 1 日（強制率 0.5%、平均第 1.1 日）。
+- **0050 可執行基準仍是第 1 交易日**，樣本外 mean regret 3.20%；全特徵模型 4.36%，差 116 bps，CI [−196, −39]。
+- **VT 同樣是第 1 日**：樣本外 2.75%；技術＋日曆模型 3.12%，−37 bps，CI [−96, 22] 跨 0。holdout 第 1 日 2.24%、模型 3.18%，−95 bps，CI 全 < 0。
+- 兩檔的 6 組政策與 6 條領先規則樣本外 CI 均未全數 > 0。VT 的 SOX 規則 +6 bps、僅機率 +5 bps，CI 都跨 0，不是贏。
+- 在現有約束下，月內擇時不太可能穩定贏第 1 日；這不是 0050 特例。
 - 尚未做：景氣燈（月度金額，不是月內選日；未回測，不得預設會贏）。
 
 ## 重要實作決策
@@ -34,13 +32,14 @@
 
 ```powershell
 uv run buy-price-assessment all --validate-all-twse-months --force-models
+uv run buy-price-assessment all --symbol VT
 uv run ruff format --check .
 uv run ruff check .
 uv run mypy
 uv run pytest -q
 ```
 
-正式報告 `reports/0050_buy_point_analysis.md`，結構化結果 `reports/research_results.json`。
+0050 正式報告 `reports/0050_buy_point_analysis.md`；VT `reports/VT_buy_point_analysis.md`。
 
 ## 重要原則
 

@@ -49,6 +49,18 @@ ETF 本身沒有公司層級 EPS，因此不可把不存在的 0050 P/E、P/B �
 - 以月份為抽樣單位 bootstrap 95% CI；CI 包含 0 時不得宣稱優於基準。
 - 分析完整月份截止以資料末日推算，不可用執行當日把資料集最後一個不完整月標成完整月。
 
+## VT 複製實驗
+
+用同一協議檢驗「月內擇時未贏第 1 日」是否為 0050 特例：
+
+- 標的：VT（Vanguard Total World Stock ETF，美元、美股常規 Open）。
+- 還原：`adjusted_open = open × (Adj_Close / Close)`；oracle 與 regret 用 total-return 還原開盤價。
+- 特徵：只有技術＋日曆。沒有點時 NAV／融資／法人，不可用 `nav = close` 或全零籌碼當主模型。
+- 第 5 日截止沿用 0050 已公布的 oracle 前 5 日占比 48.2%，不依 VT 樣本重估。
+- 領先規則名單與門檻不變；TSM／SOX 與 VT 同一交易時段，as-of 仍為 T-1（前一美股日，不是跨市場隔夜）。缺 `tsm_us.csv`／`sox_us.csv`／`usd_twd.csv` 必須失敗，不可靜默跳過。
+- 產物分檔：`data/processed/VT_daily.csv`、`data/processed/vt/`、`reports/VT_buy_point_analysis.md`、`reports/vt_research_results.json`，不覆寫 0050。
+- 宣稱優於第 1 日的標準不變：樣本外 95% CI 必須全數 > 0。
+
 ## 資料合約
 
 每日主表至少含：`date`、OHLC、成交量值、原始／分割／總報酬還原價、配息、分割、NAV、折溢價、流通單位、融資融券與法人淨買賣。原始檔依來源分檔，主表保留官方收盤來源，並檢查日期唯一、價格關係、缺值、起訖日與跨來源收盤價差。

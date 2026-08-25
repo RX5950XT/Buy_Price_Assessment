@@ -64,6 +64,36 @@ def parse_us_prices(rows: Sequence[Mapping[str, Any]], *, source: str) -> pd.Dat
     return _normalize_date(result, source)
 
 
+def parse_us_ohlc(rows: Sequence[Mapping[str, Any]], *, source: str) -> pd.DataFrame:
+    """正規化美股原始 OHLC 與 vendor total-return Adj_Close。"""
+
+    required = {"date", "Open", "High", "Low", "Close", "Adj_Close", "Volume"}
+    _require_columns(rows, required, source)
+    frame = pd.DataFrame(rows).rename(
+        columns={
+            "Open": "open",
+            "High": "high",
+            "Low": "low",
+            "Close": "close",
+            "Adj_Close": "adj_close",
+            "Volume": "volume",
+        }
+    )
+    columns = ["date", "open", "high", "low", "close", "adj_close", "volume"]
+    result = _numeric(frame.loc[:, columns], columns[1:], source)
+    prices = result.loc[:, ["open", "high", "low", "close", "adj_close"]]
+    if (prices <= 0.0).any().any():
+        raise DataSourceError(f"{source} 含非正價格")
+    if (result["volume"] < 0.0).any():
+        raise DataSourceError(f"{source} 含負成交量")
+    ohlc = result.loc[:, ["open", "high", "low", "close"]]
+    if (ohlc["high"] < ohlc[["open", "close", "low"]].max(axis=1)).any():
+        raise DataSourceError(f"{source} 最高價低於其他 OHLC 價格")
+    if (ohlc["low"] > ohlc[["open", "close", "high"]].min(axis=1)).any():
+        raise DataSourceError(f"{source} 最低價高於其他 OHLC 價格")
+    return _normalize_date(result, source)
+
+
 def parse_usd_twd(rows: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
     """臺灣銀行即期中間價；-99 與非正數視為缺值。"""
 
@@ -297,6 +327,12 @@ class FinMindRepository:
 
     def us_adj_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
         return parse_us_prices(
+            self._fetch("USStockPrice", start, end, data_id=symbol),
+            source=f"FinMind USStockPrice {symbol}",
+        )
+
+    def us_ohlc_prices(self, symbol: str, start: date, end: date) -> pd.DataFrame:
+        return parse_us_ohlc(
             self._fetch("USStockPrice", start, end, data_id=symbol),
             source=f"FinMind USStockPrice {symbol}",
         )

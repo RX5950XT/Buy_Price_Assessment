@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from buy_price_assessment.adjustments import build_adjusted_prices
+from buy_price_assessment.clients import DataSourceError
 from buy_price_assessment.repositories import FinMindRepository, TwseRepository, YuantaRepository
 
 
@@ -116,6 +117,134 @@ def _write_lead_frames(raw_dir: Path, frames: dict[str, pd.DataFrame]) -> None:
     names = {"tsm": "tsm_us.csv", "sox": "sox_us.csv", "fx": "usd_twd.csv"}
     for key, filename in names.items():
         frames[key].to_csv(raw_dir / filename, index=False, encoding="utf-8-sig")
+
+
+def infer_us_actions(close: pd.Series, adj_close: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """由原始收盤與 vendor Adj_Close 推估除息與分割；無法解釋的大跳動則失敗。"""
+
+    cash = pd.Series(0.0, index=close.index, dtype=float)
+    split = pd.Series(1.0, index=close.index, dtype=float)
+    close_gross = close.astype(float) / close.shift(1).astype(float)
+    adj_gross = adj_close.astype(float) / adj_close.shift(1).astype(float)
+    implied = adj_gross / close_gross
+    for position in range(1, len(close)):
+        value = float(implied.iloc[position])
+        if not np.isfinite(value):
+            raise ValueError("Adj_Close 與收盤價無法計算企業行動")
+        if value >= 1.4:
+            nearest = float(round(value))
+            if nearest < 2.0:
+                raise ValueError(f"無法辨識的分割比率：{value}")
+            split.iloc[position] = nearest
+        elif value > 1.002:
+            previous_close = float(close.iloc[position - 1])
+            cash.iloc[position] = previous_close * (1.0 - 1.0 / value)
+            if cash.iloc[position] < 0.0:
+                raise ValueError("推估配息為負")
+        elif value < 0.95:
+            raise ValueError(f"無法由 Adj_Close 解釋的價格跳動：implied={value:.4f}")
+    return cash, split
+
+
+def assemble_us_etf_daily(prices: pd.DataFrame) -> pd.DataFrame:
+    """用 vendor Adj_Close 當 total-return 還原，組出與特徵管線相容的每日表。"""
+
+    required = {"date", "open", "high", "low", "close", "adj_close", "volume"}
+    missing = required.difference(prices.columns)
+    if missing:
+        raise ValueError(f"美股每日資料缺少欄位：{sorted(missing)}")
+    result = prices.copy()
+    result["date"] = pd.to_datetime(result["date"], errors="raise")
+    result = result.sort_values("date", ignore_index=True)
+    if result["date"].duplicated().any():
+        raise ValueError("美股每日資料含重複日期")
+    numeric_columns = ["open", "high", "low", "close", "adj_close", "volume"]
+    numeric = result.loc[:, numeric_columns].apply(pd.to_numeric, errors="coerce")
+    if numeric.isna().any().any():
+        raise ValueError("美股 OHLC 與成交量必須是數字")
+    result.loc[:, numeric_columns] = numeric
+    if (result.loc[:, ["open", "high", "low", "close", "adj_close"]] <= 0.0).any().any():
+        raise ValueError("美股價格必須為正")
+    if (result["volume"] < 0.0).any():
+        raise ValueError("成交量不可為負")
+    ohlc = result.loc[:, ["open", "high", "low", "close"]]
+    if (ohlc["high"] < ohlc[["open", "close", "low"]].max(axis=1)).any():
+        raise ValueError("最高價低於其他 OHLC 價格")
+    if (ohlc["low"] > ohlc[["open", "close", "high"]].min(axis=1)).any():
+        raise ValueError("最低價高於其他 OHLC 價格")
+
+    factor = result["adj_close"] / result["close"]
+    if (factor <= 0.0).any() or not np.isfinite(factor.to_numpy(dtype=float)).all():
+        raise ValueError("還原因子無效")
+    result["adjustment_factor"] = factor
+    for column in ("open", "high", "low"):
+        result[f"adjusted_{column}"] = result[column] * factor
+    result["adjusted_close"] = result["adj_close"]
+    first_adj = float(result["adj_close"].iloc[0])
+    result["total_return_index"] = 100.0 * result["adj_close"] / first_adj
+    cash, split = infer_us_actions(result["close"], result["adj_close"])
+    result["cash_dividend"] = cash
+    result["split_ratio"] = split
+    reverse_product = result["split_ratio"].iloc[::-1].cumprod().iloc[::-1]
+    future_splits = reverse_product / result["split_ratio"]
+    for column in ("open", "high", "low", "close"):
+        result[f"split_adjusted_{column}"] = result[column] / future_splits
+    result["gross_return"] = result["adj_close"].pct_change().fillna(0.0) + 1.0
+    result["trading_value"] = result["volume"] * result["close"]
+    result["nav"] = result["close"]
+    result["issuer_market_price"] = result["close"]
+    result["official_close"] = result["close"]
+    result["official_close_source"] = "FinMind USStockPrice"
+    result["close_difference"] = 0.0
+    result["margin_balance"] = 0.0
+    result["short_balance"] = 0.0
+    result["institutional_net"] = 0.0
+    result["foreign_net"] = 0.0
+    result["trust_net"] = 0.0
+    result["dealer_net"] = 0.0
+    result["institutional_available"] = False
+    result["outstanding_units"] = 1.0
+    dividends = result.loc[result["cash_dividend"] > 0.0, ["date", "cash_dividend"]]
+    splits = result.loc[result["split_ratio"] != 1.0, ["date", "split_ratio"]]
+    result["distribution_yield_ttm"] = _distribution_yield(result, dividends, splits)
+    result["feature_available_date"] = result["date"].shift(-1)
+    return result.sort_values("date", ignore_index=True)
+
+
+def download_us_etf_data(
+    *,
+    symbol: str = "VT",
+    start: date = date(2008, 6, 24),
+    end: date | None = None,
+    raw_dir: Path = Path("data/raw"),
+) -> pd.DataFrame:
+    """下載美股 ETF 日線；目前只支援 VT。"""
+
+    if symbol != "VT":
+        raise ValueError(f"尚未支援的美股標的：{symbol}")
+    final_date = end or date.today()
+    headers = {"User-Agent": "BuyPriceAssessment/0.1 research-contact-none"}
+    timeout = httpx.Timeout(45.0, connect=15.0)
+    with httpx.Client(timeout=timeout, headers=headers, follow_redirects=True) as client:
+        finmind = FinMindRepository(client)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {
+                "prices": executor.submit(finmind.us_ohlc_prices, symbol, start, final_date),
+                "tsm": executor.submit(finmind.us_adj_prices, "TSM", start, final_date),
+                "sox": executor.submit(finmind.us_adj_prices, "^SOX", start, final_date),
+                "fx": executor.submit(finmind.usd_twd, start, final_date),
+            }
+            frames = {name: future.result() for name, future in futures.items()}
+    prices = frames["prices"]
+    if prices.empty:
+        raise DataSourceError(f"FinMind USStockPrice {symbol} 沒有資料")
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    prices.to_csv(raw_dir / "vt_us.csv", index=False, encoding="utf-8-sig")
+    _write_lead_frames(
+        raw_dir,
+        {"tsm": frames["tsm"], "sox": frames["sox"], "fx": frames["fx"]},
+    )
+    return assemble_us_etf_daily(prices)
 
 
 def download_daily_data(
