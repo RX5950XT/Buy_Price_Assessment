@@ -225,3 +225,14 @@ def test_render_report_classifies_filter_versus_delayed_day1() -> None:
     assert "屬過濾" in report
     assert "TSM 隔夜大跌≥1%" in report
     assert "單日臺幣貶值" in report
+
+
+def test_render_report_freezes_remaining_hypotheses() -> None:
+    report = render_report({})
+    assert "月初體制閘門" in report
+    assert "真正的隔夜期貨" in report
+    assert "月度金額" in report
+    assert "不太可能贏、不要再做" in report
+    assert "臺指夜盤" in report
+    assert "每個月都等" in report
+    assert "再掃 dump 門檻" in report

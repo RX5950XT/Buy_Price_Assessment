@@ -552,7 +552,7 @@ def render_report(results: Mapping[str, Any]) -> str:
 - [FinMind 臺灣銀行匯率 TaiwanExchangeRate](https://finmind.github.io/tutor/ExchangeRate/)
 - [TWSE 交易制度](https://www.twse.com.tw/en/products/system/trading.html)"""
         fill_assumption = "日線研究，假設小額訂單可在開盤集合競價成交。"
-        single_name = "只研究 0050 一檔 ETF。"
+        single_name = "本報告只研究 0050；VT 用同一協議複製，結論相同。"
     else:
         feature_section = """VT 沒有點時 NAV、融資融券與三大法人，主模型只用技術＋日曆，共 15 個特徵，對應 0050 的 technical_calendar：
 
@@ -575,7 +575,7 @@ def render_report(results: Mapping[str, Any]) -> str:
 - [FinMind 臺灣銀行匯率 TaiwanExchangeRate](https://finmind.github.io/tutor/ExchangeRate/)
 - [Vanguard VT](https://investor.vanguard.com/investment-products/etfs/profile/vt)"""
         fill_assumption = "日線研究，假設小額訂單可在美股官方 Open 成交。"
-        single_name = "此報告只研究 VT；0050 結果見另一份報告。"
+        single_name = "本報告只研究 VT；0050 用同一協議，結論相同。"
 
     return f"""# {display_name} 每月最佳買點研究
 
@@ -738,14 +738,33 @@ def render_report(results: Mapping[str, Any]) -> str:
 
 ## 13. 尚未檢驗的方向
 
-月內選日協議與 0050 對齊。剩餘若做國發會景氣燈，改的是「買多少」，不是「哪一天」。
+日頻技術、籌碼、TSM／SOX／匯率在 0050 與 VT 上都沒有樣本外證據贏第 1 日。剩餘機會不是再找「今天是最低點」的日頻指標，而是改「這個月要不要等」或改「這個月買多少」。下列假設必須在看樣本外結果前凍結；門檻不掃參。宣稱優於第 1 日的標準不變：樣本外 95% CI 必須全數 > 0。
 
-### 13.1 月度金額（不是月內擇時）
+### 13.1 月度金額（先驗較高，但是另一個問題）
 
-國發會景氣對策信號屬月頻資訊，應用於每月扣款金額，而不是再挑月內交易日。
-- **特徵指標**：國發會景氣對策信號（紅藍燈）。
+國發會景氣對策信號、信用利差、估值百分位屬月頻資訊，應用於每月扣款金額，而不是再挑月內交易日。
+- **特徵指標**：國發會景氣對策信號（紅藍燈）；as-of 為第 1 日開盤前已公布的上一期，不可用當月事後燈號。
 - **問題定義**：藍燈期加碼、紅燈期減碼是否提高累積單位；主指標不再是相對當月 oracle 的 regret。
 - **不可宣稱**：尚未回測，不得預設會勝過每月固定金額、第 1 日買入。
+
+### 13.2 月初體制閘門 + 等待（月內擇時裡先驗最高的剩餘項）
+
+已測規則的失敗機制是「每個月都等」：多頭月付出正漂移，抵銷少數抓到低點的月份。改成第 1 日開盤前用慢變數凍結體制：
+- 低壓力月：直接第 1 日買（預設）。
+- 高壓力月：才啟用預先指定的隔夜大跌等待，第 5 日截止。
+- 候選慢變數：VIX 水準或 VIX 減 VIX3M、已實現波動相對 expanding-window 歷史百分位、高收益信用利差、景氣燈。
+- 體制在該月第 1 日開盤前凍結，月內不可依新日頻資料改體制。門檻必須預先指定（例如 VIX 大於 20，或波動率大於 expanding 歷史 75 百分位），不可從樣本外挑切點。
+
+### 13.3 真正的隔夜期貨（資訊比 T-1 日線更近）
+
+TSM／SOX 的 T-1 收盤已測過且失敗。更近的開盤前資訊：
+- 0050：臺指夜盤相對前一盤後收。
+- VT：CME ES 夜盤／開盤前報價相對前一美股常規收盤。
+大跌門檻沿用已凍結的 1% 經濟整數，不另掃參。單獨使用仍有過密風險，應與 13.2 體制閘門搭配。缺時間戳來源則不可用當日日線收盤假裝夜盤。
+
+### 13.4 不太可能贏、不要再做
+
+再加 RSI／均線／布林、再掃 dump 門檻或截止日、同市場 T-1 報酬正負號、盤中低點或 VWAP（違反開盤成交假設）。這些不是新資訊。
 
 > [!WARNING]
 > **多重比較偏誤（Multiple Comparison Bias / p-hacking）**
@@ -770,6 +789,8 @@ def render_report(results: Mapping[str, Any]) -> str:
 | TSM lead | 前一美股交易日台積電 ADR 還原報酬（0050 為跨市場隔夜；VT 為同一市場 T-1） |
 | SOX lead | 費城半導體指數前一美股交易日還原報酬 |
 | USD/TWD 升值 | 美元兌新臺幣即期中間價上升，即臺幣貶值；單日與三日暫緩都是這個方向 |
+| 體制閘門 | 第 1 日開盤前凍結的慢變數，決定本月直接買還是等待 |
+| 隔夜期貨 | 開盤前已成交的夜盤／盤前期貨報酬；時間戳必須早於目標開盤 |
 """
 
 
