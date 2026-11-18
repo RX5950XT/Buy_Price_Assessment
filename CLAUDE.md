@@ -16,5 +16,5 @@
 - 訊號截止日必須限制搜尋窗口；月內第 6 日之後的訊號不可當成第 5 日截止規則的觸發。
 - 匯率規則表頭必須與 `usd_twd_up` 同向：USD/TWD 上升 = 臺幣貶值。
 - 日頻月內訊號已在 0050 與 VT 失敗；剩餘假設見 `docs/research_spec.md`，必須預先凍結。不得把點估計小幅領先當贏。
-- 每次任務完成同步精簡維護 `AGENTS.md`、`CLAUDE.md`、`CONTEXT.md`。
+- 每次任務完成同步精簡維護 `AGENTS.md`、`CLAUDE.md`；交接資訊更新 `tasks/todo.md`（≤100 行）。
 - Commit 格式為 `<type>: <description>`，type 限 `feat|fix|refactor|docs|test|chore|perf|ci`。
